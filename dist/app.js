@@ -1,6 +1,6 @@
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const products=['显示屏','风速仪','控制器','扶手箱','电源模块','二合一模块','摄像头'];
-const depts=['智能化研究院','电动化研究院','系统一所','系统二所','工艺部','生产部','项目部','质量部'];
+const depts=['智能化研究院','电动化研究院','系统一所','系统二所','工艺部','生产部','项目部','质量部','储运部'];
 const issues=['显示异常','信号不稳定','功能失效','外观不良','接插件松动','性能偏差'];
 const states=['待处理','处理中','待验证','已闭环'];
 const TODAY='2026-10-17', STORE='quality-insight-records-v1';
