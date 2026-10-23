@@ -321,7 +321,7 @@
     const requireKind = (kind, label) => { if (!tasks.some(t => t.kind === kind)) add(label); };
     if (id === 'D1') {
       if (!(item.team || []).length) add('请至少选择一位团队成员');
-      if ((item.team || []).some(m => !text(m.role))) add('请补充每位团队成员的职责分工');
+      if ((item.team || []).some(m => !m.inactive && !text(m.role))) add('请补充每位团队成员的职责分工');
     }
     if (id === 'D2') {
       if (!text(w.d2.reproductionDescription)) add('缺少报故现场的故障复现描述');

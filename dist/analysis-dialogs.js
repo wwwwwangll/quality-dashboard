@@ -1,0 +1,63 @@
+(function(root){
+ 'use strict';
+ const E=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+ let context=null,identity='',stack=[],entries=new Map(),layer=null,focusBefore=null,scrollBefore=0;
+ const C=()=>root.AnalysisCore,W=()=>root.AnalysisWorkflow,U=()=>root.AnalysisWorkflowUI;
+ const name=id=>C().people.find(p=>p.id===id)?.name||'未指定';
+ const editable=()=>context?.draft.status==='active'&&context.actor===context.draft.owner;
+ function teamHTML(x){return `<section class="wf-root ad-team"><div class="wf-section-head"><h4>分析团队</h4><button class="work-btn compact" data-ad-member="" ${x.status!=='active'?'disabled':''}>＋ 添加成员</button></div>${x.team.filter(m=>!m.inactive).map(m=>`<div class="ad-member-row"><button class="ad-member" data-ad-member="${E(m.personId)}"><strong>${E(name(m.personId))}</strong><span>${E(C().people.find(p=>p.id===m.personId)?.dept)}</span><small>${E(m.role||'待填写分工')}</small><em>查看 / 编辑 ›</em></button><button class="work-btn compact" data-ad-remove-member="${E(m.personId)}" ${m.personId===x.owner||x.status!=='active'?'disabled':''}>移除</button></div>`).join('')}</section>`}
+ function causeHTML(x,ctx){return `<div class="ad-cause-grid">${['occurrence','escape'].map(section=>{const tasks=x.workflow.tasks.filter(t=>!t.archived&&t.kind==='cause'&&[section,section+'Dept'].includes(t.data.section));return `<details class="ad-cause" data-ad-key="cause:${section}"><summary><strong>${section==='occurrence'?'产生原因':'流出原因'}</strong><span>${tasks.filter(t=>t.status==='accepted').length}/${tasks.length} 项已确认</span><em>点击填写与确认 →</em></summary><section class="wf-root"><p class="work-hint">可为多位人员分别安排分析任务；责任部门在本窗口内填写，提交后由事项负责人确认。</p><button class="work-btn compact" data-ad-add-cause="${section}" ${ctx.actor!==x.owner||x.status!=='active'?'disabled':''}>＋ 增加分析人员</button>${tasks.map(t=>`<div>${U().taskHTML(x,t,ctx)}${t.data.section===section?`<button class="work-btn compact" data-ad-remove-cause="${E(t.id)}" ${ctx.actor!==x.owner||x.status!=='active'?'disabled':''}>移除此项分析人员</button>`:''}</div>`).join('')}</section></details>`}).join('')}</div>`}
+ function restore(){if(layer){const current=layer._entry;if(current&&current.content.parentNode!==current.slot)current.slot.append(current.content);const error=layer.querySelector('#workError');if(error&&error._adSlot)error._adSlot.append(error);layer.remove();layer=null}document.querySelectorAll('[data-ad-inert]').forEach(e=>{e.inert=false;delete e.dataset.adInert})}
+ function mount(){restore();const entry=entries.get(stack.at(-1));if(!entry){stack=[];return}
+  layer=document.createElement('section');layer._entry=entry;layer.className='ad-layer';layer.setAttribute('role','dialog');layer.setAttribute('aria-modal','true');layer.setAttribute('aria-label',entry.title);
+  layer.innerHTML=`<header class="ad-head"><div><small>8D 工作详情</small><h2>${E(entry.title)}</h2></div><button class="work-btn" data-ad-close aria-label="返回上一级">返回 ×</button></header><div class="ad-body wf-root"></div><footer class="ad-footer"><span>内容可保存草稿；任务按原规则提交和确认</span><button class="work-btn accent" data-ad-save ${!editable()?'disabled':''}>保存草稿并返回</button></footer>`;
+  const container=document.querySelector('#workDialogContent');container.append(layer);layer.querySelector('.ad-body').append(entry.content);
+  const error=document.querySelector('#workError');if(error){error._adSlot=error.parentNode;layer.querySelector('.ad-body').append(error)}
+  document.querySelectorAll('#workDialog .work-dialog-layout,#workDialog>.work-dialog-head,#workSavebar').forEach(e=>{e.inert=true;e.dataset.adInert='1'});
+  layer.querySelector('[data-ad-close]').focus();
+ }
+ function open(key){context.capture();if(!stack.length){focusBefore=document.activeElement;scrollBefore=document.querySelector('.work-detail-body')?.scrollTop||0}if(stack.at(-1)!==key)stack.push(key);mount()}
+ function close(){context.capture();restore();stack.pop();if(stack.length)mount();else{const body=document.querySelector('.work-detail-body');if(body)body.scrollTop=scrollBefore;focusBefore?.focus?.()}}
+ function register(node,key,title,summary){
+  const holder=document.createElement('div');holder.className='ad-entry';const button=document.createElement('button');button.type='button';button.className='ad-summary';button.dataset.adOpen=key;button.innerHTML=summary||`<strong>${E(title)}</strong><span>查看详情 →</span>`;
+  const slot=document.createElement('div');slot.hidden=true;slot.dataset.adSlot=key;const content=document.createElement('div');content.className='ad-content';
+  if(node.tagName==='DETAILS'){[...node.childNodes].filter(n=>n!==node.querySelector(':scope>summary')).forEach(n=>content.append(n));node.remove();}else content.append(node);
+  holder.append(button,slot);slot.append(content);entries.set(key,{key,title,slot,content});return holder;
+ }
+ function decorate(ctx){
+  const modalScroll=layer?.querySelector('.ad-body')?.scrollTop||0;context=ctx;const next=ctx.draft.id+'|'+ctx.tab;if(next!==identity){identity=next;stack=[]}entries=new Map();layer=null;
+  const container=document.querySelector('#workDialogContent');
+  // Group stage configuration as dialog entries as well as individual task forms.
+  for(const extra of container.querySelectorAll('.wf-stage-extra')){
+    if(['D2','D6','D8'].includes(ctx.tab))for(const heading of [...extra.children].filter(e=>e.tagName==='H4')){
+      const nodes=[];let node=heading.nextElementSibling;while(node&&node.tagName!=='H4'){const next=node.nextElementSibling;if(!node.classList.contains('wf-task')&&!node.classList.contains('wf-action-row')&&!node.matches('[data-wf-action="add-task"]'))nodes.push(node);node=next}
+      if(!nodes.length)continue;const details=document.createElement('details'),summary=document.createElement('summary');summary.textContent=heading.textContent;details.dataset.adKey='section:'+ctx.tab+':'+heading.textContent;details.append(summary);heading.replaceWith(details);nodes.forEach(n=>details.append(n));
+    }
+    if(ctx.tab==='D3')for(const field of extra.querySelectorAll(':scope>.wf-plan-section>.wf-field')){const details=document.createElement('details'),summary=document.createElement('summary');summary.textContent='库存处理方案适用设置';details.dataset.adKey='section:D3:plan';field.before(details);details.append(summary,field)}
+  }
+  // Convert every disclosure into its own dialog; no detailed form expands in place.
+  [...container.querySelectorAll('details')].reverse().forEach((node,index)=>{const summary=node.querySelector(':scope>summary');if(!summary)return;const title=node.classList.contains('wf-quantity')?(ctx.draft.workflow.tasks.find(t=>t.id===node.dataset.wfTaskCard)?.title||'库存数量确认'):node.classList.contains('ad-cause')?summary.querySelector('strong').textContent:node.classList.contains('wf-compact-overview')?'流程进度与未完成事项':summary.textContent.trim(),key=node.dataset.adKey||(node.classList.contains('wf-quantity')?'task:'+node.dataset.wfTaskCard:'detail:'+ctx.tab+':'+index+':'+title.slice(0,32));const html=node.classList.contains('wf-quantity')||node.classList.contains('ad-cause')?summary.innerHTML:undefined;const anchor=document.createComment('dialog');node.before(anchor);const entry=register(node,key,title,html);anchor.replaceWith(entry);});
+  [...container.querySelectorAll('.wf-task[data-wf-task-card]')].forEach(node=>{if(node.closest('[data-ad-slot^="task:"]'))return;const t=ctx.draft.workflow.tasks.find(t=>t.id===node.dataset.wfTaskCard);if(!t)return;const anchor=document.createComment('task');node.before(anchor);const html=`<strong>${E(t.title)}</strong><span>${E(name(t.owner))} · ${E(t.due||'未设期限')}</span><em>${({draft:'待提交',submitted:'待确认',accepted:'已完成',returned:'已退回'})[t.status]||''}　查看详情 →</em>`;const entry=register(node,'task:'+t.id,t.title,html);anchor.replaceWith(entry)});
+  if(stack.length){stack=stack.filter(key=>entries.has(key));if(stack.length){mount();layer.querySelector('.ad-body').scrollTop=modalScroll}}
+ }
+ function memberDialog(id){const x=context.draft,m=x.team.find(m=>m.personId===id&&!m.inactive),key='member:'+id;
+  const choices=m?C().people.filter(p=>p.id===id):C().people.filter(p=>!x.team.some(m=>m.personId===p.id&&!m.inactive));
+  const content=document.createElement('div');content.className='wf-root';content.innerHTML=`<label class="wf-field">团队成员<select id="adMemberPerson" ${m||!editable()?'disabled':''}>${choices.map(p=>`<option value="${E(p.id)}">${E(p.name)} · ${E(p.dept)}</option>`).join('')}</select></label><label class="wf-field">职责与分工<textarea id="adMemberRole" ${!editable()?'disabled':''}>${E(m?.role||'')}</textarea></label><button class="work-btn accent" data-ad-confirm-member ${!editable()||!choices.length?'disabled':''}>确认${m?'修改':'添加'}</button><p class="work-error" id="adMemberError"></p>`;
+  const slot=document.createElement('div');slot.hidden=true;document.querySelector('#workDialogContent').append(slot);slot.append(content);entries.set(key,{title:m?'编辑团队成员':'添加团队成员',slot,content});open(key)
+ }
+ function save(message){context.capture();context.invalidate();if(context.persist(message)){context.render();return true}return false}
+ document.addEventListener('click',event=>{const el=event.target.closest('[data-ad-open],[data-ad-close],[data-ad-save],[data-ad-member],[data-ad-confirm-member],[data-ad-remove-member],[data-ad-add-cause],[data-ad-remove-cause]');if(!el)return;event.preventDefault();event.stopImmediatePropagation();
+  if(el.dataset.adOpen)return open(el.dataset.adOpen);
+  if(el.hasAttribute('data-ad-close'))return close();
+  if(el.hasAttribute('data-ad-save')){const member=layer?.querySelector('[data-ad-confirm-member]');if(member){member.click();return}const old=stack.slice();stack.pop();if(!save('保存弹出窗口内容'))stack=old;return}
+  if(el.hasAttribute('data-ad-member'))return memberDialog(el.dataset.adMember);
+  if(!editable())return;
+  const x=context.draft;
+  if(el.hasAttribute('data-ad-confirm-member')){const id=document.querySelector('#adMemberPerson').value,role=document.querySelector('#adMemberRole').value.trim();if(!id||!role){document.querySelector('#adMemberError').textContent='请选择成员并填写职责分工';return}let m=x.team.find(m=>m.personId===id);if(m){m.role=role;delete m.inactive}else{x.team.push({personId:id,role});x.tasks.forEach(t=>t.allocations[id]=0)}stack.pop();return save('团队成员设置：'+name(id)+'；'+role)}
+  if(el.dataset.adRemoveMember){const id=el.dataset.adRemoveMember;if(id===x.owner)return alert('事项负责人需要保留在团队中');if(!confirm('移除此成员？已有完成记录和贡献保留，未完成工作将清除该成员分派并提示重新分派。'))return;const m=x.team.find(m=>m.personId===id);if(!m)return;m.inactive=true;for(const t of x.workflow.tasks.filter(t=>t.status!=='accepted'&&!t.archived)){if(t.owner===id||t.reviewer===id){if(t.owner===id)t.owner='';if(t.reviewer===id)t.reviewer='';if(t.status==='submitted')t.status='returned'}}return save('从当前团队移除 '+name(id)+'，历史贡献保留')}
+  if(el.dataset.adAddCause){const section=el.dataset.adAddCause,t=W().newTask('D4','cause',(section==='occurrence'?'产生原因':'流出原因')+' · 新增人员分析');t.data.section=section;x.workflow.tasks.push(t);stack.push('task:'+t.id);return save('增加'+t.title)}
+  if(el.dataset.adRemoveCause){const t=x.workflow.tasks.find(t=>t.id===el.dataset.adRemoveCause);if(!t)return;if(t.status==='accepted'||t.submissions?.length)return alert('已有提交或确认记录需要保留；可增加其他人员分析任务。');if(!confirm('移除此项人员分工？'))return;const peers=x.workflow.tasks.filter(v=>!v.archived&&v.kind==='cause'&&v.data.section===t.data.section);if(peers.length>1)x.workflow.tasks=x.workflow.tasks.filter(v=>v.id!==t.id);else t.owner='';return save('移除未提交的原因分析人员分工')}
+ },true);
+ document.addEventListener('keydown',event=>{if(!layer)return;if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();close()}else if(event.key==='Tab'){const all=[...layer.querySelectorAll('button,input,select,textarea,a')].filter(e=>!e.disabled&&e.offsetParent!==null),first=all[0],last=all.at(-1);if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus()}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus()}event.stopPropagation()}},true);
+ root.AnalysisDialogs={decorate,teamHTML,causeHTML,openTask(id){const key='task:'+id;if(!entries.has(key)){const t=context.draft.workflow.tasks.find(t=>t.id===id);if(!t)return;const wrapper=document.createElement('div');wrapper.innerHTML=U().taskHTML(context.draft,t,{actor:context.actor});const node=wrapper.firstElementChild;document.querySelector('#workDialogContent').append(register(node,key,t.title))}open(key)},reset(){restore();stack=[];identity=''}};
+})(window);
