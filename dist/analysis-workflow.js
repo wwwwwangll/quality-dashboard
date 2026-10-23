@@ -61,8 +61,9 @@
   }
   const causeSections = { occurrence: '产生原因', escape: '流出原因', occurrenceDept: '产生原因责任部门', escapeDept: '流出原因责任部门' };
   const isQuantity = t => t.kind === 'quantity' && t.policyVersion === 4;
-  const evidenceRequired = t => t.policyVersion === 4 ? !!t.evidenceRequired : true;
-  const reviewerFor = (item, t) => t.stage === 'D4' && t.kind === 'cause' ? item.owner : t.reviewer;
+  const evidenceRequired = t => t.simpleFreeze ? false : t.policyVersion === 4 ? !!t.evidenceRequired : true;
+  const isQualityManager = actor => root.AnalysisCore?.isQualityManager(actor) === true;
+  const reviewerFor = (item, t) => t.stage === 'D4' && t.kind === 'cause' ? 'me' : t.reviewer;
   const isImage = f => /^image\//i.test(f.type || '') || /\.(png|jpe?g|gif|webp|bmp|heic|avif)$/i.test(f.name || '');
   function evidencePresent(t) {
     if (t.stage === 'D4' && t.kind === 'cause') return (t.files || []).some(f => text(f.id) && isImage(f));
@@ -103,6 +104,23 @@
     else fillMissing(item.workflow, defaults(item));
     upgrade(item);
     const w = item.workflow;
+    if (!w.uiRevision5 && item.status === 'active' && !w.legacyClosed && !w.legacyPending && !w.frozenV3) {
+      const candidates=w.tasks.filter(t=>!t.archived&&t.kind==='sn');
+      if(candidates.length)w.d2.primarySnId=(candidates.find(t=>t.status==='accepted')||candidates.find(t=>text(t.data?.quantity)!==''||text(t.result))||candidates[0]).id;
+      if(w.tasks.some(t=>t.kind==='scheme'&&!t.archived))for(const t of w.tasks.filter(t=>t.kind==='rework'&&!t.archived))t.previousReworkArea=true;
+      for(const old of w.tasks.filter(t=>t.kind==='freeze'&&t.status==='accepted'&&!t.simpleFreeze&&!t.archived)){
+        old.previousFreezeRecord=true;
+        const task=newTask('D2','freeze','产品冻结数量填报');task.owner=old.owner;task.reviewer=old.reviewer;task.base=old.base;w.tasks.push(task);
+      }
+      for(const t of w.tasks.filter(t=>t.kind==='freeze'&&t.status!=='accepted'&&!t.archived)){
+        t.previousFreezeSnapshot=clone(t);t.simpleFreeze=true;t.policyVersion=4;t.evidenceRequired=false;
+        if(t.title==='产品冻结执行与证明')t.title='产品冻结数量填报';
+        fillMissing(t.data,{sn:'',productionQty:'',material:'',shippedQty:'',unit:'pcs'});
+        if(t.status==='submitted')t.status='returned';
+      }
+      w.uiRevision5=true;
+    }
+    if(w.uiRevision5&&!w.tasks.some(t=>t.id===w.d2.primarySnId&&!t.archived))w.d2.primarySnId=w.tasks.find(t=>t.kind==='sn'&&!t.archived)?.id||'';
     if (!w.legacyClosed && !w.legacyPending && !w.frozenV3) {
       for (const category of quantityCategories) if (!w.tasks.some(t => !t.archived && t.kind === 'quantity' && t.data.category === category)) {
         const t = newTask('D3', 'quantity', category + '数量确认'); t.data.category = category; w.tasks.push(t);
@@ -115,6 +133,7 @@
   }
   function newTask(stage, kind, title) {
     const data = kind === 'quantity' ? { category: '', quantity: '', unit: 'pcs' }
+      : kind === 'freeze' ? { sn:'', productionQty:'', material:'', shippedQty:'', unit:'pcs' }
       : kind === 'cause' ? { section: '', primary: '', secondary: [] }
       : kind === 'sn' ? { quantity: '', unit: '件', sn: '', snapshotAt: '' }
       : ['scheme', 'rework'].includes(kind) ? { categories: [] }
@@ -122,11 +141,14 @@
       : kind === 'implementation' ? { measureId: '' }
       : kind === 'verification' ? { scope: '', criteria: '', sample: '', window: '', decision: '待验证' }
       : {};
-    return { id: root.crypto && root.crypto.randomUUID ? root.crypto.randomUUID() : 'task-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2), stage, kind, policyVersion: 4, evidenceRequired: stage !== 'D1' && kind !== 'quantity', title: title || '', scope: '', owner: '', reviewer: '', due: '', assignedAt: nowISO(), submittedAt: '', acceptedAt: '', status: 'draft', base: null, initiative: null, evidenceScore: null, ratingReason: '', result: '', links: [], files: [], submissions: [], data };
+    return { id: root.crypto && root.crypto.randomUUID ? root.crypto.randomUUID() : 'task-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2), stage, kind, simpleFreeze: kind === 'freeze', policyVersion: 4, evidenceRequired: stage !== 'D1' && !['quantity','freeze'].includes(kind), title: title || '', scope: '', owner: '', reviewer: '', due: '', assignedAt: nowISO(), submittedAt: '', acceptedAt: '', status: 'draft', base: null, initiative: null, evidenceScore: null, ratingReason: '', result: '', links: [], files: [], submissions: [], data };
   }
   function taskEnabled(item, task) {
     const w = ensure(item);
     if (task.archived) return false;
+    if (task.previousReworkArea) return false;
+    if (task.previousFreezeRecord) return false;
+    if (task.kind==='sn' && w.uiRevision5 && (w.d2.freeze || task.id!==w.d2.primarySnId)) return false;
     if (task.retired && task.status !== 'accepted') return false;
     if (optionalStages.includes(task.stage) && item.stages && item.stages[task.stage] && item.stages[task.stage].na && text(item.stages[task.stage].naReason)) return false;
     if (task.kind === 'freeze') return !!w.d2.freeze;
@@ -158,6 +180,11 @@
         if (!Array.isArray(data.secondary) || data.secondary.some(d => !depts.includes(d) || d === data.primary) || new Set(data.secondary).size !== data.secondary.length) add('missing', '次要部门须有效、不重复且不能与主责部门相同');
       }
     }
+    if(task.simpleFreeze){
+      if(!text(data.sn))add('missing','请填写SN号或涉及SN范围');
+      if(!text(data.material))add('missing','请填写料号');
+      for(const [k,label] of [['productionQty','SN对应生产数量'],['shippedQty','料号已发货数量']])if(!hasNumber(data[k])||!Number.isInteger(Number(data[k])))add('missing',label+'须为非负整数（未知留空，没有填0）');
+    }
     if (task.kind === 'sn') {
       if (!text(data.sn || data.snScope || ensure(item).d2.snScope || task.scope)) add('missing', '缺少涉及SN或追溯范围');
       if (!hasNumber(data.quantity)) add('missing', '缺少已确认的涉及生产数量');
@@ -180,7 +207,7 @@
     }
     if (task.kind === 'horizontal' && !text(task.scope)) add('missing', '缺少横向展开适用对象');
     if (task.kind === 'production' && !ensure(item).d8.production.productionAt) add('missing', '尚未记录首次生产事件，不能提前提交首产复核');
-    if (!isQuantity(task) && !text(task.result)) add('missing', '缺少任务结果或执行说明');
+    if (!isQuantity(task) && !task.simpleFreeze && !text(task.result)) add('missing', '缺少任务结果或执行说明');
     if (evidenceRequired(task) && !evidencePresent(task)) add('evidence', '缺少有效证据附件或资料链接');
     return result;
   }
@@ -205,6 +232,26 @@
     task.submissions = task.submissions || [];
     task.submissions.push({ at: timestamp, status: task.status, payload: taskPayload(task), result: task.result, data: clone(task.data || {}), files: clone(task.files || []), links: clone(task.links || []) });
     return '';
+  }
+  function setEvidenceRequirement(item,id,value,actor){
+    if(!isQualityManager(actor))return '仅质量管理员可设置证据要求';
+    const task=findTask(item,id);if(item.status!=='active'||!task||task.archived||!['draft','returned'].includes(task.status))return '此任务当前不可更改证据要求';
+    if(task.simpleFreeze)return '冻结填报不要求任务证据';
+    task.policyVersion=4;task.evidenceRequired=!!value;return '';
+  }
+  function confirmQualityTask(item,id,actor,at){
+    if(!isQualityManager(actor))return '仅质量管理员可以确定';
+    const task=findTask(item,id);if(item.status!=='active'||!task||task.kind!=='cause'||task.archived)return '此项当前不可确定';
+    if(!text(task.result)){
+      if(!['draft','returned'].includes(task.status))return '请先填写实际结果再确定';
+      const error=taskIssues(item,task,true)[0];if(error)return error.label;
+      if(!text(task.scope))return '请填写要求输出的内容';
+      task.assignmentConfirmedAt=at||nowISO();return '';
+    }
+    const issue=taskIssues(item,task)[0];if(issue)return issue.label;
+    const rating=ratingError(task);if(rating)return rating;
+    if(task.status!=='submitted'||!currentSubmission(task)){const error=submitTask(item,id,at);if(error)return error;}
+    return acceptTask(item,id,actor,at);
   }
   function ratingError(task) {
     if (!text(task.initiative) || ![0, 60, 80, 100].includes(Number(task.initiative))) return '请选择主动性评分';
@@ -275,7 +322,7 @@
   }
   function taskPoints(task) {
     if (isQuantity(task)) return null;
-    if (task.status !== 'accepted' || ratingError(task) || ![1, 2, 3].includes(Number(task.base)) || (evidenceRequired(task) && !evidencePresent(task)) || !text(task.result) || !currentSubmission(task)) return null;
+    if (task.status !== 'accepted' || ratingError(task) || ![1, 2, 3].includes(Number(task.base)) || (evidenceRequired(task) && !evidencePresent(task)) || (!task.simpleFreeze && !text(task.result)) || !currentSubmission(task)) return null;
     const time = timing(task).score;
     if (time === null) return null;
     return Number(task.base) * (evidenceRequired(task) ? Number(task.initiative) * 0.2 + time * 0.3 + Number(task.evidenceScore) * 0.5 : Number(task.initiative) * 0.4 + time * 0.6) / 100;
@@ -322,10 +369,11 @@
     if (id === 'D1') {
       if (!(item.team || []).length) add('请至少选择一位团队成员');
       if ((item.team || []).some(m => !m.inactive && !text(m.role))) add('请补充每位团队成员的职责分工');
+      if(item.stages.D1.requiresEvidence&&!hasEvidence(item.stages.D1))issues.push({type:'evidence',label:'D1团队组建缺少要求的证据'});
     }
     if (id === 'D2') {
       if (!text(w.d2.reproductionDescription)) add('缺少报故现场的故障复现描述');
-      requireKind('sn', '请分派SN涉及生产数量确认任务');
+      if(!w.d2.freeze)requireKind('sn', '请分派SN涉及生产数量确认任务');
       if (w.d2.freeze) {
         if (!text(w.d2.freezeNumber)) add('缺少冻结编号');
         requireKind('freeze', '请分派产品冻结执行任务');
@@ -333,12 +381,7 @@
     }
     if (id === 'D3') {
       for (const category of quantityCategories) if (!tasks.some(t => t.kind === 'quantity' && (t.data || {}).category === category)) add('请分派' + category + '数量确认任务');
-      if (!['same', 'different'].includes(w.d3.samePlan)) add('请选择各阶段处理措施是否一致');
-      const plans = tasks.filter(t => ['scheme', 'rework'].includes(t.kind));
-      if (!plans.length) add('请分派处理或返工方案上传任务');
-      const positiveCategories = [...new Set(tasks.filter(t => t.kind === 'quantity' && hasNumber(t.data.quantity) && Number(t.data.quantity) > 0).map(t => t.data.category))];
-      if (w.d3.samePlan === 'same' && plans.length && !plans.some(plan => positiveCategories.every(category => (plan.data.categories || []).includes(category)))) add('已选择统一处理方案，请指定一份覆盖所有有产品范围的公共方案');
-      for (const task of tasks.filter(t => t.kind === 'quantity' && hasNumber(t.data.quantity) && Number(t.data.quantity) > 0)) if (!plans.some(plan => (plan.data.categories || []).includes(task.data.category))) add(task.data.category + '尚未关联适用处理方案');
+      if (!tasks.some(t=>['scheme','rework'].includes(t.kind))) add('请分派返工方案任务');
       const keys = new Set();
       for (const task of tasks.filter(t => t.kind === 'quantity')) {
         const d = task.data || {}, key = d.category;
@@ -495,7 +538,7 @@
     item.history.push({ at: today, actor: '质量管理员', text: '作为复发问题新建分析，关联原8D ' + source.id + '；原分析及关闭记录保留' });
     return item;
   }
-  const api = { isQuantity, evidenceRequired, evidencePresent, reviewerFor, causeSections, currentSubmission, ensure, newTask, taskEnabled, taskIssues, submitTask, acceptTask, returnTask, repeatVerification, replacementFor, timing, taskPoints, contribution, validateBonuses, validateStage, checklist, progress, stageComplete, createRecurrence, simulateOrder, simulateProduction, refreshReminder, monthDueDate, quantityCategories, toolOptions, hasEvidence };
+  const api = { isQualityManager, setEvidenceRequirement, confirmQualityTask, isQuantity, evidenceRequired, evidencePresent, reviewerFor, causeSections, currentSubmission, ensure, newTask, taskEnabled, taskIssues, submitTask, acceptTask, returnTask, repeatVerification, replacementFor, timing, taskPoints, contribution, validateBonuses, validateStage, checklist, progress, stageComplete, createRecurrence, simulateOrder, simulateProduction, refreshReminder, monthDueDate, quantityCategories, toolOptions, hasEvidence };
   root.AnalysisWorkflow = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

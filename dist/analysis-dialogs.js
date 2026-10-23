@@ -22,7 +22,7 @@
   const holder=document.createElement('div');holder.className='ad-entry';const button=document.createElement('button');button.type='button';button.className='ad-summary';button.dataset.adOpen=key;button.innerHTML=summary||`<strong>${E(title)}</strong><span>查看详情 →</span>`;
   const slot=document.createElement('div');slot.hidden=true;slot.dataset.adSlot=key;const content=document.createElement('div');content.className='ad-content';
   if(node.tagName==='DETAILS'){[...node.childNodes].filter(n=>n!==node.querySelector(':scope>summary')).forEach(n=>content.append(n));node.remove();}else content.append(node);
-  holder.append(button,slot);slot.append(content);entries.set(key,{key,title,slot,content});return holder;
+  if(key==='section:D2:basic'&&document.querySelector('.source-preview'))button.hidden=true;holder.append(button,slot);slot.append(content);entries.set(key,{key,title,slot,content});return holder;
  }
  function decorate(ctx){
   const modalScroll=layer?.querySelector('.ad-body')?.scrollTop||0;context=ctx;const next=ctx.draft.id+'|'+ctx.tab;if(next!==identity){identity=next;stack=[]}entries=new Map();layer=null;
@@ -37,7 +37,7 @@
   }
   // Convert every disclosure into its own dialog; no detailed form expands in place.
   [...container.querySelectorAll('details')].reverse().forEach((node,index)=>{const summary=node.querySelector(':scope>summary');if(!summary)return;const title=node.classList.contains('wf-quantity')?(ctx.draft.workflow.tasks.find(t=>t.id===node.dataset.wfTaskCard)?.title||'库存数量确认'):node.classList.contains('ad-cause')?summary.querySelector('strong').textContent:node.classList.contains('wf-compact-overview')?'流程进度与未完成事项':summary.textContent.trim(),key=node.dataset.adKey||(node.classList.contains('wf-quantity')?'task:'+node.dataset.wfTaskCard:'detail:'+ctx.tab+':'+index+':'+title.slice(0,32));const html=node.classList.contains('wf-quantity')||node.classList.contains('ad-cause')?summary.innerHTML:undefined;const anchor=document.createComment('dialog');node.before(anchor);const entry=register(node,key,title,html);anchor.replaceWith(entry);});
-  [...container.querySelectorAll('.wf-task[data-wf-task-card]')].forEach(node=>{if(node.closest('[data-ad-slot^="task:"]'))return;const t=ctx.draft.workflow.tasks.find(t=>t.id===node.dataset.wfTaskCard);if(!t)return;const anchor=document.createComment('task');node.before(anchor);const html=`<strong>${E(t.title)}</strong><span>${E(name(t.owner))} · ${E(t.due||'未设期限')}</span><em>${({draft:'待提交',submitted:'待确认',accepted:'已完成',returned:'已退回'})[t.status]||''}　查看详情 →</em>`;const entry=register(node,'task:'+t.id,t.title,html);anchor.replaceWith(entry)});
+  [...container.querySelectorAll('.wf-task[data-wf-task-card]')].forEach(node=>{if(node.closest('[data-ad-slot^="task:"]'))return;const t=ctx.draft.workflow.tasks.find(t=>t.id===node.dataset.wfTaskCard);if(!t)return;const anchor=document.createComment('task');node.before(anchor);const html=`<strong>${E(t.kind==='scheme'?'返工方案':t.simpleFreeze?'产品冻结数量填报':t.title)}</strong><span>${E(name(t.owner))} · ${E(t.due||'未设期限')}</span><em>${({draft:'待提交',submitted:'待确认',accepted:'已完成',returned:'已退回'})[t.status]||''}　查看详情 →</em>`;const entry=register(node,'task:'+t.id,t.title,html);anchor.replaceWith(entry)});
   if(stack.length){stack=stack.filter(key=>entries.has(key));if(stack.length){mount();layer.querySelector('.ad-body').scrollTop=modalScroll}}
  }
  function memberDialog(id){const x=context.draft,m=x.team.find(m=>m.personId===id&&!m.inactive),key='member:'+id;
