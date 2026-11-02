@@ -23,3 +23,11 @@ test('旧静态站主要动态文本转义，不拼入未经转义的料号客�
  for(const key of ['id','model','issue','customer','name'])assert.ok(!source.includes('${r.'+key+'}'));
  assert.ok(!source.includes('preserveAspectRatio="none"'));
 });
+
+test('发布依赖声明与锁定文件一致，干净安装不会发生版本冲突',()=>{
+ const manifest=JSON.parse(read('package.json')),lock=JSON.parse(read('package-lock.json'));
+ for(const [name,version] of Object.entries(manifest.dependencies)){
+  assert.equal(lock.packages[''].dependencies[name],version,name+' root lock');
+  assert.equal(lock.packages['node_modules/'+name].version,version,name+' resolved lock');
+ }
+});
