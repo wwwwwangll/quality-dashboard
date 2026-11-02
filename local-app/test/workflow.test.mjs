@@ -66,7 +66,7 @@ test('执行人员不能配置阶段、改责任人、篡改状态或写他人�
   const {item,id}=await assignedGeneral(f);
   for(const patch of [{owner:'worker2'},{status:'accepted'},{initiative:100},{due:'2026-11-30'}])await expectError(f.command(item,'save-task',{taskId:id,patch},'worker'),/不允许/,403);
   await expectError(f.command(item,'patch-stage',{stage:'D1',fields:{goal:'越权'}},'worker'),/权限/,403);
-  await expectError(f.command(item,'save-task',{taskId:id,patch:{result:'越权'}},'worker2'),/范围/,404);
+  await expectError(f.command(item,'save-task',{taskId:id,patch:{result:'越权'}},'worker2'),/分派/,403);
   await expectError(f.command(item,'accept-task',{taskId:id},'worker'),/权限/,403);
 }));
 
@@ -177,7 +177,7 @@ test('完整D1—D8按需零实验关单，保留快照和历史且不改原报�
   await complete(id,{data:{sn:'SN-001',quantity:100}});await finish('D2');
   await cmd('patch-stage',{stage:'D3',fields:{containment:'临时增加低温开机筛选',execution:'已覆盖在制及库存'}});
   for(const task of item.workflow.tasks.filter(t=>t.kind==='quantity')){await cmd('save-task',{taskId:task.id,patch:{owner:'worker',due:'2026-10-30'}});await cmd('save-task',{taskId:task.id,patch:{data:{quantity:0}}},'worker');await cmd('submit-task',{taskId:task.id},'worker');}
-  const plan=item.workflow.tasks.find(t=>t.kind==='rework');f.store.put('files','evidence-plan',{name:'返工方案.pdf',type:'application/pdf',size:1,sha256:'synthetic'});await cmd('save-task',{taskId:plan.id,patch:{owner:'worker',reviewer:'qe',due:'2026-10-30',base:1,scope:'返工固件更新'}});await cmd('save-task',{taskId:plan.id,patch:{result:'更新完成',data:{categories:['原材料','半成品','成品','在途品','客户端成品']},files:[{id:'evidence-plan'}]}},'worker');await cmd('submit-task',{taskId:plan.id},'worker');await cmd('accept-task',{taskId:plan.id,initiative:100,evidenceScore:100,ratingReason:'方案和适用范围已确认'});await finish('D3');
+  const plan=item.workflow.tasks.find(t=>t.kind==='rework');f.store.put('files','evidence-plan',{name:'返工方案.pdf',type:'application/pdf',size:1,sha256:'synthetic',uploadedBy:'worker'});await cmd('save-task',{taskId:plan.id,patch:{owner:'worker',reviewer:'qe',due:'2026-10-30',base:1,scope:'返工固件更新'}});await cmd('save-task',{taskId:plan.id,patch:{result:'更新完成',data:{categories:['原材料','半成品','成品','在途品','客户端成品']},files:[{id:'evidence-plan'}]}},'worker');await cmd('submit-task',{taskId:plan.id},'worker');await cmd('accept-task',{taskId:plan.id,initiative:100,evidenceScore:100,ratingReason:'方案和适用范围已确认'});await finish('D3');
   await cmd('patch-stage',{stage:'D4',config:{d4:{occurrenceResponsibility:{primary:'智能化研究院',secondary:[]}}}});
   for(const task of item.workflow.tasks.filter(t=>t.kind==='cause'))await complete(task.id,{result:task.data.section==='occurrence'?'复位释放早于电源稳定':task.data.section==='escape'?'出厂未覆盖低温首次启动':'检验责任归属质量部',data:task.data.section==='escapeDept'?{primary:'质量部',secondary:[]}:{} });
   await finish('D4');

@@ -4,6 +4,7 @@ import {randomUUID,createHash} from 'node:crypto';
 import {PDFDocument,rgb} from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import {fileURLToPath} from 'node:url';
+import {requireRecord} from './access.mjs';
 import {appError} from './store.mjs';
 import {hasPermission} from './auth.mjs';
 
@@ -70,9 +71,9 @@ export function createArchiveService({store,fileRoot=store.fileRoot,renderPdf}){
   const snapshot=old?.snapshot||JSON.parse(JSON.stringify(item.closeSnapshot||item));
   const job=(async()=>{let r=store.put('archive',item.id,{...old,analysisId:item.id,status:'generating',snapshot,error:'',generatedAt:old?.generatedAt||null});try{
     const bytes=await (renderPdf||makePdf)(snapshot),relative=path.join('pdf',item.id.replace(/[^\p{L}\p{N}_.-]/gu,'_')+'-'+randomUUID()+'.pdf');fs.mkdirSync(path.join(fileRoot,'pdf'),{recursive:true});fs.writeFileSync(path.join(fileRoot,relative),bytes,{flag:'wx'});
-    r=store.put('archive',item.id,{...r,status:'ready',path:relative,size:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex'),generatedAt:new Date().toISOString(),error:''});store.audit('system','pdf.ready',{analysisId:item.id,size:bytes.length});return r;
-   }catch(e){return store.put('archive',item.id,{...r,status:'failed',error:String(e.message).slice(0,500)});}finally{running.delete(item.id);}})();running.set(item.id,job);return job;
+    r=store.put('archive',item.id,{...r,status:'ready',path:relative,size:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex'),generatedAt:new Date().toISOString(),error:''});store.audit('system','pdf.ready',{analysisId:item.id,size:bytes.length});const current=store.get('analyses',item.id);if(current?.status==='closed')store.put('analyses',item.id,{...current,pdf:{...current.pdf,status:'ready',archiveId:item.id,generatedAt:r.generatedAt,size:r.size}},{expectedVersion:current.version});return r;
+   }catch(e){const current=store.get('analyses',item.id);if(current?.status==='closed')store.put('analyses',item.id,{...current,pdf:{...current.pdf,status:'failed',error:'PDF生成失败，请重试'}},{expectedVersion:current.version});return store.put('archive',item.id,{...r,status:'failed',error:String(e.message).slice(0,500)});}finally{running.delete(item.id);}})();running.set(item.id,job);return job;
  }
- async function api(action,{user,id}){if(!user)throw appError('请先登录',401);if(action==='retry'){if(!hasPermission(user,'tasks.review'))throw appError('仅管理员或质量工程师可以生成归档',403);const item=store.get('analyses',id);if(!item)throw appError('报告不存在',404);return generate(item,{retry:true});}if(action==='pdf'){const a=store.get('archive',id);if(!a||a.status!=='ready')throw appError('PDF尚未成功生成',409);const p=path.resolve(fileRoot,a.path);if(!p.startsWith(path.resolve(fileRoot)+path.sep)||!fs.existsSync(p))throw appError('归档文件不存在，请重新生成',404);return {buffer:fs.readFileSync(p),type:'application/pdf',name:id+'-8D报告.pdf'};}throw appError('未知归档操作');}
+ async function api(action,{user,id}){if(!user)throw appError('请先登录',401);requireRecord(store,user,'analyses',id);if(action==='retry'){if(!hasPermission(user,'tasks.review'))throw appError('仅管理员或质量工程师可以生成归档',403);const item=store.get('analyses',id);if(!item)throw appError('报告不存在',404);return generate(item,{retry:true});}if(action==='pdf'){const a=store.get('archive',id);if(!a||a.status!=='ready')throw appError('PDF尚未成功生成',409);const p=path.resolve(fileRoot,a.path);if(!p.startsWith(path.resolve(fileRoot)+path.sep)||!fs.existsSync(p))throw appError('归档文件不存在，请重新生成',404);return {buffer:fs.readFileSync(p),type:'application/pdf',name:id+'-8D报告.pdf'};}throw appError('未知归档操作');}
  return {api,generate,makePdf,async resume(){for(const a of store.list('archive').filter(a=>a.status==='generating')){const item=store.get('analyses',a.analysisId);if(item)await generate(item,{retry:true});}}};
 }

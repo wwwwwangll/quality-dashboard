@@ -63,11 +63,11 @@ root.AnalysisGuideUI=function(ctx){
   if(!a||a.blocked)return;
   S.forms=[];S.stage=a.stage||get().stage;renderDialogs();
   if(a.type==='d2')return ctx.v4().openD2();if(a.type==='dimension')return ctx.v4().assign(a.dimension);
-  if(a.type==='node')return ctx.v4().openNode(a.dimension,a.node);if(a.type==='task')return openTask(a.task);
+  if(a.type==='node')return ctx.v4().openGrid(a.dimension);if(a.type==='task')return openTask(a.task);
   if(['entry','basic','evidence'].includes(a.type))return entry(a);
   if(a.type==='measure'){const created=await command('create-measure',{causeId:a.cause});const id=created.newTaskId;await refresh();return openTask(id);}
-  if(a.type==='finish'){await command('finish-stage',{stage:S.stage});await refresh();S.stage='follow';renderDialogs();toast('阶段已确认，跟进看板已更新');return;}
-  if(a.type==='close'){if(!root.confirm('确认完成8D并生成归档PDF？'))return;await command('close');await refresh();S.stage='follow';renderDialogs();toast('8D已关闭，PDF已请求生成');}
+  if(a.type==='finish'){await command('finish-stage',{stage:S.stage});await refresh();S.stage='follow';renderDialogs();toast('已经完成提交：阶段已确认，跟进看板已更新');return;}
+  if(a.type==='close'){if(!root.confirm('确认完成8D并生成归档PDF？'))return;await command('close');await refresh();S.stage='follow';renderDialogs();toast('已经完成提交：8D已关闭，请查看PDF归档状态');}
  }
  async function next({automatic=false}={}){
   S.guided=true;const stage=/^D[1-8]$/.test(S.stage)?S.stage:current(S.analysis),p=get(stage);

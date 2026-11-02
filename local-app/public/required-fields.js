@@ -1,6 +1,6 @@
 (function(root){'use strict';
 // These labels describe submission requirements, not whether a draft can be saved.
-function annotate(S){const body=document.querySelector('#formBody');if(!body||!S.analysis)return;const f=S.forms.at(-1),x=S.analysis,W=root.AnalysisWorkflow,t=x.workflow.tasks.find(t=>t.id===f?.taskId),stage=S.stage;
+function annotate(S){const body=document.querySelector('#formBody');if(!body||!S.analysis)return;const f=S.forms.at(-1),x=S.analysis,W=root.AnalysisWorkflow,t=x.workflow.tasks.find(t=>t.id===f?.taskId),stage=S.stage;if(f?.type==='v4-grid')return;
  if(!body.querySelector('.field-requirement-legend'))body.insertAdjacentHTML('afterbegin','<p class="field-requirement-legend">带“必填”的内容用于正式提交；草稿可逐步补充。“条件必填”按当前选择生效，“责任人必填”由任务接收人填写。</p>');
  const basicRequired=['product','model','customer','quantity','description','condition','impact'];
  function rule(el){const k=el.name||el.dataset.wfBind||el.dataset.wfTaskBind||el.dataset.wfLocal||el.dataset.wfArray||el.dataset.wfTaskArray||'';
@@ -17,7 +17,7 @@ function annotate(S){const body=document.querySelector('#formBody');if(!body||!S
   if(f.type==='v4-assign')return ['owner','due','base','evidenceRequired'].includes(k)?'必填':'选填';
   if(f.type==='v4-split')return '必填';
   if(f.type==='v4-team')return k==='team-person'?'必填':'自动带入';
-  if(f.type==='v4-node'){if(['label','status','description'].includes(k))return '责任人必填';if(k==='reviewReason')return '驳回时必填，至少20字';if(['initiative','evidenceScore'].includes(k))return '确认评价时必填';if(el.type==='file')return '条件必填：根因须证据，需要照片时须图片';return '选填';}
+  if(f.type==='v4-node'){if(['label','status','rootCause'].includes(k))return '责任人必填';if(k==='description')return '根因必填';if(k==='reviewReason')return '驳回时必填，至少20字';if(['initiative','evidenceScore'].includes(k))return '确认评价时必填';if(el.type==='file')return '条件必填：根因须证据，需要照片时须图片';return '选填';}
   if(f.type==='v4-task'||el.dataset.wfTaskBind){const target=t||x.workflow.tasks.find(t=>t.id===el.dataset.taskId),key=k.replace(/^data\./,'');
    if(['title','owner','due','base','reviewer','evidenceRequired'].includes(key))return '分派时必填';
    if(['quantity','productionQty','shippedQty','scope','criteria','sample','window','decision','result'].includes(key))return '责任人必填';
@@ -26,7 +26,7 @@ function annotate(S){const body=document.querySelector('#formBody');if(!body||!S
    if(['sn','material','unit'].includes(key))return '自动带入';
    if(['initiative','evidenceScore','ratingReason'].includes(key))return key==='evidenceScore'&&!W.evidenceRequired(target)?'不参与评分':'确认评价时必填';
    if(key==='reviewReason')return '验收或退回时必填';
-   if(el.type==='file')return target&&W.evidenceRequired(target)?'责任人必填：附件或有效链接':'选填';
+   if(el.type==='file')return target&&W.evidenceRequired(target)?target.kind==='rework'?'责任人必填：上传返工方案文件':target.kind==='cause'?'责任人必填：上传图片':'责任人必填：附件或有效链接':'选填';
   }
   if(k==='stageNaReason')return '条件必填：选择不适用时';
   if(k==='d6.withdrawal')return '必填';

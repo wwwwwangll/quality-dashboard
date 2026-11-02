@@ -10,7 +10,7 @@ export function scopedData(store,user){
  const departmentIds=new Set(users.filter(u=>u.dept&&u.dept===user.dept).map(u=>u.id));
  const direct=r=>!!user.dept&&[r.dept,r.department,r.primary,...array(r.secondary),...array(r.departments),...array(r.relatedDepartments),...(r.shares||[]).map(s=>s.dept)].includes(user.dept);
  const preliminaryIds=new Set(store.list('preliminaryAssignments').filter(p=>departmentIds.has(p.userId)).map(p=>p.faultId));
- const related=a=>isFreeze(user)?a.freezeAssignment?.owner===user.id:preliminaryIds.has(a.faultId)||direct(faults.find(f=>f.id===a.faultId)||{})||direct(a)||a.workflow?.tasks?.some(t=>!t.archived&&!t.gridRoot&&(departmentIds.has(t.owner)||(t.transfers||[]).some(h=>h.fromDept===user.dept||h.toDept===user.dept)))||a.nineGrid?.dimensions.some(d=>d.nodes.some(n=>direct(n)));
+ const related=a=>isFreeze(user)?a.freezeAssignment?.owner===user.id:(a.team||[]).some(m=>m.personId===user.id&&!m.inactive)||preliminaryIds.has(a.faultId)||direct(faults.find(f=>f.id===a.faultId)||{})||direct(a)||a.workflow?.tasks?.some(t=>!t.archived&&!t.gridRoot&&(departmentIds.has(t.owner)||(t.transfers||[]).some(h=>h.fromDept===user.dept||h.toDept===user.dept)))||a.nineGrid?.dimensions.some(d=>d.nodes.some(n=>direct(n)));
  const permitted=analyses.filter(related),faultIds=new Set(permitted.map(a=>a.faultId));
  let selectedFaults=faults.filter(f=>isFreeze(user)?faultIds.has(f.id):faultIds.has(f.id)||direct(f)||preliminaryIds.has(f.id));
  const ids=new Set(selectedFaults.map(f=>f.id));
@@ -26,7 +26,7 @@ export function canReadFile(store,user,id){
  if(globalView(user))return true;
  const file=store.get('files',id);if(file?.uploadedBy===user.id)return true;
  const v=scopedData(store,user),allowedFaults=new Set(v.faults.map(f=>f.id));
- const related=[...v.analyses,...v.faults,...v.claims,...store.list('preliminary').filter(p=>allowedFaults.has(p.faultId)),...store.list('archive').filter(a=>v.analyses.some(i=>i.id===a.analysisId))];
+ const related=[...v.analyses.filter(a=>!isReader(user)||a.status==='closed'),...(!isReader(user)?[...v.faults,...v.claims]:[]),...store.list('preliminary').filter(p=>!isReader(user)&&allowedFaults.has(p.faultId)),...store.list('archive').filter(a=>v.analyses.some(i=>i.id===a.analysisId))];
  const walk=x=>{if(!x||typeof x!=='object')return false;if(x.id===id&&('type'in x||'size'in x||'name'in x))return true;return Object.values(x).some(v=>Array.isArray(v)?v.some(walk):typeof v==='object'&&walk(v));};
  return related.some(walk);
 }

@@ -22,6 +22,7 @@ export async function startServer({dataDir,environment='test',port=0,host='127.0
  const wf=createWorkflowService({store,fileRoot:store.fileRoot,onClosed:async item=>archive.generate(item)});
  const allowedHosts=new Set(['localhost','127.0.0.1','[::1]',...(process.env.QUALITY_ALLOWED_HOSTS||'').split(',').map(s=>s.trim().toLowerCase()).filter(Boolean)]);
  app.disable('x-powered-by');
+ app.set('case sensitive routing',true);
  if(process.env.QUALITY_TRUST_PROXY==='loopback')app.set('trust proxy','loopback');
  app.use((req,res,next)=>{
    res.set({'X-Content-Type-Options':'nosniff','X-Frame-Options':'SAMEORIGIN','Referrer-Policy':'same-origin','Cache-Control':'no-store','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'"});
@@ -34,7 +35,7 @@ export async function startServer({dataDir,environment='test',port=0,host='127.0
  });
  app.use('/api/files',express.raw({type:()=>true,limit:'10mb'}));
  app.use(express.json({limit:'22mb'}));
- app.get('/api/status',(req,res)=>res.json({environment,initialized:store.list('users').some(u=>u.role==='admin'),application:'quality-dashboard-local',version:'4.1.1'}));
+ app.get('/api/status',(req,res)=>res.json({environment,initialized:store.list('users').some(u=>u.role==='admin'),application:'quality-dashboard-local',version:'4.2.0'}));
  const setCookie=(res,token)=>res.cookie(auth.cookieName,token,{httpOnly:true,sameSite:'strict',secure:process.env.QUALITY_HTTPS==='1',maxAge:8*3600*1000,path:'/'});
  app.post('/api/setup',async(req,res)=>{
    if(!isLoopback(req.socket.remoteAddress))throw appError('首次管理员只能在运行电脑本机创建',403);
@@ -51,15 +52,15 @@ export async function startServer({dataDir,environment='test',port=0,host='127.0
  app.use('/api',(req,res,next)=>{try{
   if(req.user.role==='admin')return next();
   const p=req.path,write=!['GET','HEAD','OPTIONS'].includes(req.method),personal=['/logout','/change-password'].includes(p);
-  if(isReader(req.user)&&!personal&&(write||!['/bootstrap','/queues'].includes(p)&&!/^\/archives\/[^/]+\/pdf$/.test(p)))throw appError('此账号仅可查看本部门看板和8D报告',403);
+  if(isReader(req.user)&&!personal&&(write||!['/bootstrap','/queues','/metrics'].includes(p.toLowerCase())&&!/^\/archives\/[^/]+\/pdf$/i.test(p)&&!/^\/files\/[^/]+$/i.test(p)))throw appError('此账号仅可查看本部门看板和8D报告',403);
   if(isFreeze(req.user)&&!personal&&write&&!/^\/analyses\/[^/]+\/commands$/.test(p))throw appError('变更管理员仅可填写分派的冻结编号',403);
-  let match=p.match(/^\/analyses\/([^/]+)/)||p.match(/^\/archives\/([^/]+)/);if(match)requireRecord(store,req.user,'analyses',decodeURIComponent(match[1]));
-  match=p.match(/^\/faults\/([^/]+)/);if(match)requireRecord(store,req.user,'faults',decodeURIComponent(match[1]));
-  match=p.match(/^\/claims\/([^/]+)/);if(match)requireRecord(store,req.user,'claims',decodeURIComponent(match[1]));
-  match=p.match(/^\/files\/([^/]+)/);if(match&&!canReadFile(store,req.user,decodeURIComponent(match[1])))throw appError('附件不存在或无查看权限',404);
+  let match=p.match(/^\/analyses\/([^/]+)/i)||p.match(/^\/archives\/([^/]+)/i);if(match)requireRecord(store,req.user,'analyses',decodeURIComponent(match[1]));
+  match=p.match(/^\/faults\/([^/]+)/i);if(match)requireRecord(store,req.user,'faults',decodeURIComponent(match[1]));
+  match=p.match(/^\/claims\/([^/]+)/i);if(match)requireRecord(store,req.user,'claims',decodeURIComponent(match[1]));
+  match=p.match(/^\/files\/([^/]+)/i);if(match&&!canReadFile(store,req.user,decodeURIComponent(match[1])))throw appError('附件不存在或无查看权限',404);
   next();
  }catch(e){next(e)}});
- app.get('/api/bootstrap',(req,res)=>{const v=scopedData(store,req.user),ids=new Set(v.analyses.map(a=>a.id)),faultIds=new Set(v.faults.map(f=>f.id));res.json({user:publicUser(req.user),csrf:req.auth.csrf,users:store.list('users').filter(u=>req.user.role==='admin'||u.enabled!==false).map(publicUser),...v,analyses:isReader(req.user)?v.analyses.filter(a=>a.status==='closed').map(a=>({id:a.id,faultId:a.faultId,title:a.title,status:a.status,revised:a.revised})):v.analyses,preliminary:isReader(req.user)||isFreeze(req.user)?[]:store.list('preliminary').filter(p=>faultIds.has(p.faultId)),settings:req.user.role==='admin'?redact(store.list('settings')):[],archives:store.list('archive').filter(a=>ids.has(a.analysisId||a.id)).map(({snapshot,...metadata})=>metadata),...(req.user.role==='admin'?{backups:store.list('backups'),outbox:store.list('outbox').slice(-100)}:{}),environment,roles,permissionOptions,version:'4.1.1'});});
+ app.get('/api/bootstrap',(req,res)=>{const v=scopedData(store,req.user),ids=new Set(v.analyses.map(a=>a.id)),faultIds=new Set(v.faults.map(f=>f.id));res.json({user:publicUser(req.user),csrf:req.auth.csrf,users:store.list('users').filter(u=>req.user.role==='admin'||u.enabled!==false).map(publicUser),...v,analyses:isReader(req.user)?v.analyses.filter(a=>a.status==='closed').map(a=>({id:a.id,faultId:a.faultId,title:a.title,status:a.status,revised:a.revised})):v.analyses,preliminary:isReader(req.user)||isFreeze(req.user)?[]:store.list('preliminary').filter(p=>faultIds.has(p.faultId)),settings:req.user.role==='admin'?redact(store.list('settings')):[],archives:store.list('archive').filter(a=>ids.has(a.analysisId||a.id)).map(({snapshot,...metadata})=>metadata),...(req.user.role==='admin'?{backups:store.list('backups'),outbox:store.list('outbox').slice(-100)}:{}),environment,roles,permissionOptions,version:'4.2.0'});});
  app.delete('/api/users/:id',(req,res)=>{requirePermission(req.user,'users.manage');const old=store.get('users',req.params.id);if(!old)throw appError('账号不存在',404);if(old.role==='admin'&&store.list('users').filter(u=>u.role==='admin'&&u.enabled!==false&&!u.archived).length<=1)throw appError('不能移除最后一个有效管理员');const saved=store.put('users',old.id,{...old,enabled:false,archived:true,archivedAt:new Date().toISOString()},{expectedVersion:req.body.version,actor:req.user,event:'user.archive'});auth.invalidate(old.id);res.json(publicUser(saved));});
  app.get('/api/users',(req,res)=>{requirePermission(req.user,'users.manage');res.json(store.list('users').map(publicUser));});
  function duplicateUsername(username,exclude){if(store.list('users').some(u=>u.id!==exclude&&u.username.toLowerCase()===username.toLowerCase()))throw appError('用户名已存在',409);}
@@ -73,7 +74,7 @@ export async function startServer({dataDir,environment='test',port=0,host='127.0
    if(!['image/png','image/jpeg','image/webp','application/pdf'].includes(type))type='application/octet-stream';
    const id=randomUUID(),file={name,size:b.length,type,sha256:createHash('sha256').update(b).digest('hex'),uploadedBy:req.user.id,uploadedAt:new Date().toISOString()};fs.writeFileSync(path.join(store.fileRoot,id),b,{flag:'wx'});try{res.status(201).json(store.put('files',id,file,{actor:req.user,event:'file.upload'}))}catch(e){fs.unlinkSync(path.join(store.fileRoot,id));throw e}
  });
- app.get('/api/files/:id',(req,res)=>{const file=store.get('files',req.params.id);if(!file||!/^[\w.-]{1,200}$/.test(file.id)||file.id.startsWith('.'))throw appError('附件不存在',404);const p=path.join(store.fileRoot,file.id);if(!fs.existsSync(p))throw appError('附件内容缺失，请联系管理员恢复',404);const inline=['image/png','image/jpeg','image/webp','application/pdf'].includes(file.type);res.set('Content-Security-Policy',"default-src 'none'; sandbox");res.type(inline?file.type:'application/octet-stream');res.set('Content-Disposition',`${inline?'inline':'attachment'}; filename*=UTF-8''${encodeURIComponent(file.name)}`);res.sendFile(p);});
+ app.get('/api/files/:id',(req,res)=>{if(!canReadFile(store,req.user,req.params.id))throw appError('附件不存在或无查看权限',404);const file=store.get('files',req.params.id);if(!file||!/^[\w.-]{1,200}$/.test(file.id)||file.id.startsWith('.'))throw appError('附件不存在',404);const p=path.join(store.fileRoot,file.id);if(!fs.existsSync(p))throw appError('附件内容缺失，请联系管理员恢复',404);const inline=['image/png','image/jpeg','image/webp','application/pdf'].includes(file.type);res.set('Content-Security-Policy',"default-src 'none'; sandbox");res.type(inline?file.type:'application/octet-stream');res.set('Content-Disposition',`${inline?'inline':'attachment'}; filename*=UTF-8''${encodeURIComponent(file.name)}`);res.sendFile(p);});
  app.get('/api/imports/templates',(req,res)=>{requirePermission(req.user,'imports.manage');res.type('text/csv; charset=utf-8').send(imports.template(req.query.kind));});
  app.post('/api/imports/preview',async(req,res)=>res.json(await imports.preview(req.body,req.user)));
  app.post('/api/imports/:id/commit',(req,res)=>res.json(imports.commit(req.params.id,req.body,req.user)));
@@ -93,10 +94,18 @@ export async function startServer({dataDir,environment='test',port=0,host='127.0
  app.get('/api/queues',async(req,res)=>res.json(await wf.api('queues',{user:req.user,body:req.query})));
  app.post('/api/faults/:id/preliminary',async(req,res)=>res.json(await wf.api('preliminary',{user:req.user,body:req.body,id:req.params.id})));
  app.post('/api/faults/:id/assign',async(req,res)=>res.json(await wf.api('assign',{user:req.user,body:req.body,id:req.params.id})));
- app.get('/api/archives/:id/pdf',async(req,res)=>{const out=await archive.api('pdf',{user:req.user,id:req.params.id});res.type(out.type||'application/pdf');res.set('Content-Disposition',`inline; filename*=UTF-8''${encodeURIComponent(out.name||'8D.pdf')}`);res.send(out.buffer);});
+ app.get('/api/archives/:id/pdf',async(req,res)=>{requireRecord(store,req.user,'analyses',req.params.id);const out=await archive.api('pdf',{user:req.user,id:req.params.id});res.type(out.type||'application/pdf');res.set('Content-Disposition',`inline; filename*=UTF-8''${encodeURIComponent(out.name||'8D.pdf')}`);res.send(out.buffer);});
  app.post('/api/archives/:id/retry',async(req,res)=>res.json(await archive.api('retry',{user:req.user,body:req.body,id:req.params.id})));
  app.post('/api/system/actions',async(req,res)=>{const {action,...body}=req.body;res.json(await system.api(action,{user:req.user,body,id:req.body.id}));});
- app.get('/api/audit',(req,res)=>{requirePermission(req.user,'system.manage');res.json(store.db.prepare('SELECT * FROM audit ORDER BY id DESC LIMIT 300').all().map(r=>({...r,details:JSON.parse(r.details)})));});
+ app.get('/api/audit',(req,res)=>{
+  requirePermission(req.user,'system.manage');const q=req.query;
+  const integer=(key,fallback,min,max)=>{if(q[key]===undefined)return fallback;if(!/^\d+$/.test(String(q[key])))throw appError(key+'须为有效整数');const v=Number(q[key]);if(!Number.isSafeInteger(v)||v<min||v>max)throw appError(key+'超出范围');return v;};
+  const limit=integer('limit',300,1,300),offset=integer('offset',0,0,Number.MAX_SAFE_INTEGER),where=[],params=[];
+  if(q.since!==undefined){const since=String(q.since);if(!/^\d{4}-\d{2}-\d{2}(?:T[\d:.]+(?:Z|[+-]\d{2}:\d{2}))?$/.test(since)||!Number.isFinite(Date.parse(since)))throw appError('since时间无效');where.push('at >= ?');params.push(new Date(since).toISOString());}
+  for(const[key,sql]of [['analysisId',"json_extract(details,'$.id') = ?"],['taskId',"json_extract(details,'$.taskId') = ?"],['actor','actor = ?'],['event','event = ?']])if(q[key]!==undefined){if(typeof q[key]!=='string'||q[key].length>200)throw appError('筛选参数无效');where.push(sql);params.push(q[key]);}
+  const sql='SELECT * FROM audit'+(where.length?' WHERE '+where.join(' AND '):'')+' ORDER BY id DESC LIMIT ? OFFSET ?';res.json(store.db.prepare(sql).all(...params,limit,offset).map(r=>({...r,details:JSON.parse(r.details)})));
+ });
+ app.get('/api/users/export.csv',(req,res)=>{requirePermission(req.user,'users.manage');const cell=v=>'"'+String(v??'').replace(/^[\s\x00-\x1f]*[=+@-]/,"'app.get('/api/audit',(req,res)=>{requirePermission(req.user,'system.manage');res.json(store.db.prepare('SELECT * FROM audit ORDER BY id DESC LIMIT 300').all().map(r=>({...r,details:JSON.parse(r.details)})));});").replaceAll('"','""')+'"';const rows=[['账号','姓名','部门','角色','当前状态'],...store.list('users').map(u=>[u.username,u.name,u.dept,u.role,u.archived?'已归档':u.enabled===false?'已停用':'启用'])];res.type('text/csv; charset=utf-8').set('Content-Disposition',"attachment; filename=account-status.csv").send('\uFEFF'+rows.map(r=>r.map(cell).join(',')).join('\r\n'));});
  app.use('/api',(req,res)=>res.status(404).json({error:'接口不存在'}));
  const allowedLegacy=new Set(['analysis-core.js','analysis-workflow.js','analysis-workflow-ui.js','analysis-dialogs.js','analysis.css','analysis-workflow.css','style.css','guide.html']);
  app.get('/legacy/:name',(req,res)=>{if(!allowedLegacy.has(req.params.name))return res.sendStatus(404);res.sendFile(path.join(here,'..','dist',req.params.name));});

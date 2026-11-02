@@ -25,14 +25,15 @@ export function gridCommand(item,body,user,{G,W,manager,files,links,userBy,addMe
  if(body.action==='grid-save'){
   if(body.label!==undefined){check(text(body.label)&&text(body.label).length<=100,'选项名称须为1至100字');n.label=text(body.label);}
   if(body.status!==undefined){check(['issue','clear','pending'].includes(body.status),'请选择三种判断之一');if(n.children.length)check(body.status==='issue','已有下层分析的节点保持有问题');n.status=body.status;}
-  if(body.description!==undefined)n.description=text(body.description).slice(0,12000);if(body.rootCause!==undefined){check(typeof body.rootCause==='boolean','根因标记无效');check(!body.rootCause||!n.children.length,'已有下层节点不能同时提交为根因');n.rootCause=body.rootCause;}
+  if(body.description!==undefined)n.description=text(body.description).slice(0,12000);if(body.rootCause!==undefined){check(typeof body.rootCause==='boolean','根因标记无效');if(body.rootCause)n.status='issue';check(!body.rootCause||!n.children.length,'已有下层节点不能同时提交为根因');n.rootCause=body.rootCause;}
   if(body.files)n.files=files(body.files,user);if(body.links)n.links=links(body.links);return;
  }
  if(body.action==='grid-split'){
   check(n.status==='issue','仅有问题的节点可继续拆分');check(n.level<4,'最多拆分到L4；未确认时保留待确认，不强行认定根因');check(!n.children.length,'该节点已有下层分析');const labels=body.labels||['现象与范围','输入条件','设计与参数','材料与部件','工艺与装配','测试与测量','环境与使用','接口与变更','其他原因'];check(Array.isArray(labels)&&labels.length===9&&labels.every(x=>text(x)&&text(x).length<=100),'下层须有九个有效分析方向');n.rootCause=false;n.children=G.nodes(labels.map(text),n.level+1,n.id);return;
  }
  if(body.action==='grid-submit'){
-  check(!n.children.length,'请提交下层具体结论');const errors=G.nodeIssues(n,t);check(!errors.length,errors[0]);n.review='submitted';n.submittedAt=now.toISOString();n.history.push({at:n.submittedAt,by:user.id,action:'submitted',description:n.description,status:n.status,rootCause:n.rootCause,files:G.copy(n.files),links:G.copy(n.links)});t.status=G.leaves(d.nodes).every(n=>['submitted','accepted'].includes(n.review))?'submitted':'draft';return;
+  if(body.patch!==undefined){const patch=body.patch;check(patch&&typeof patch==='object'&&!Array.isArray(patch)&&Object.keys(patch).every(k=>['label','status','description','rootCause','files','links'].includes(k)),'分析提交字段无效');gridCommand(item,{...patch,action:'grid-save',dimension:body.dimension,nodeId:body.nodeId},user,{G,W,manager,files,links,userBy,addMember,now});}
+  check(!n.children.length,'请提交下层具体结论');const errors=G.nodeIssues(n,t);check(!errors.length,errors[0]);n.policyVersion=2;n.review='submitted';n.submittedAt=now.toISOString();n.history.push({at:n.submittedAt,by:user.id,action:'submitted',description:n.description,status:n.status,rootCause:n.rootCause,files:G.copy(n.files),links:G.copy(n.links)});t.status=G.leaves(d.nodes).every(n=>['submitted','accepted'].includes(n.review))?'submitted':'draft';return;
  }
  fail('不支持的九宫格操作');
 }

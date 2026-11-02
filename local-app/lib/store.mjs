@@ -30,7 +30,7 @@ export function createStore({dataDir,environment='test',testMode=false}) {
     if(options.expectedVersion!==undefined&&Number(options.expectedVersion)!==(old?.version||0))throw appError('记录已被其他人更新，请刷新后重试',409,{currentVersion:old?.version||0});
     const clean={...data};delete clean.version;delete clean.id;const version=(old?.version||0)+1;
     db.prepare('INSERT INTO records(kind,id,data,version,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data,version=excluded.version,updated_at=excluded.updated_at').run(kind,id,JSON.stringify(clean),version,new Date().toISOString());
-    if(options.event)audit(options.actor,options.event,{kind,id,version});return {...clean,id,version};
+    if(options.event)audit(options.actor,options.event,{...(options.details||{}),kind,id,version});return {...clean,id,version};
   }
   function remove(kind,id,options={}){
     const old=get(kind,id);if(!old)return false;if(options.expectedVersion!==undefined&&Number(options.expectedVersion)!==old.version)throw appError('记录版本冲突',409);

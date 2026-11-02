@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { hasPermission } from './auth.mjs';
 import {gridCommand} from './grid-service.mjs';
-import {scopedData,requireRecord,globalView} from './access.mjs';
+import {scopedData,requireRecord,globalView,canReadFile} from './access.mjs';
 
 const DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../dist');
 const coreSource = fs.readFileSync(path.join(DIST, 'analysis-core.js'), 'utf8');
@@ -75,7 +75,7 @@ export function createWorkflowService({store,fileRoot,onClosed=async()=>{},clock
   const requireVersion=(record,version)=>ensure(Number.isInteger(version)&&record.version===version,'记录已被其他人员更新，请刷新后重试',409);
   function files(input,user) {
     ensure(Array.isArray(input)&&input.length<=100,'附件列表无效');
-    return input.map(f=>{const found=store.get('files',str(f.id));ensure(found,'附件不存在或尚未上传');return {id:found.id,name:found.name,size:found.size,type:found.type,sha256:found.sha256};});
+    return input.map(f=>{const found=store.get('files',str(f.id));ensure(found&&canReadFile(store,user,found.id),'附件不存在或无权关联',404);return {id:found.id,name:found.name,size:found.size,type:found.type,sha256:found.sha256};});
   }
   function links(input) {
     ensure(Array.isArray(input)&&input.length<=100,'证据链接列表无效');return input.map(l=>{const name=str(l.name);let url;try{url=new URL(l.url);}catch{fail('请输入有效证据名称和链接');}ensure(name&&['http:','https:'].includes(url.protocol),'请输入有效证据名称和链接');return {name,url:url.href};});
@@ -85,11 +85,11 @@ export function createWorkflowService({store,fileRoot,onClosed=async()=>{},clock
   function addMember(item,id,role='任务协作') {if(!item.team.some(m=>m.personId===id))item.team.push({personId:id,role});else item.team.find(m=>m.personId===id).inactive=false;}
   function invalidate(item,from) {const index=STAGES.indexOf(from);for(const stage of STAGES.slice(index))item.stages[stage].done=false;if(STAGES.indexOf(item.stage)>index)item.stage=from;}
   function decorate(item,C,W) { const result=clone(item);W.ensure(result);result.contributions=clone(C.contribution(result));result.progress=clone(W.progress(result));result.checklist=clone(W.checklist(result,clock().toISOString()));return result; }
-  function persist(item,user,event,oldVersion,C,W,now) {
+  function persist(item,user,event,oldVersion,C,W,now,details={}) {
     delete item.contributions;delete item.progress;delete item.checklist;delete item.newTaskId;
     history(item,user,event,now);
     if(item.status==='closed'&&event==='8D操作：close'){delete item.closeSnapshot;item.closeSnapshot=clone(item);}
-    return decorate(store.put('analyses',item.id,item,{expectedVersion:oldVersion,actor:user.id,event}),C,W);
+    return decorate(store.put('analyses',item.id,item,{expectedVersion:oldVersion,actor:user.id,event,details}),C,W);
   }
   function taskSnapshot(item,t,now) {
     t.reportingDept=userBy(t.owner)?.dept||'未设置部门';
@@ -237,7 +237,13 @@ export function createWorkflowService({store,fileRoot,onClosed=async()=>{},clock
     if(action==='get'){
       const item=requireRecord(store,user,'analyses',id);return decorate(item,C,W);
     }
-    ensure(action==='command','操作无效');requireRecord(store,user,'analyses',id);const item=store.get('analyses',id);ensure(item,'分析事项不存在',404);requireVersion(item,body.version);ensure(item.status==='active','该分析已关闭或待审批，不能直接修改');W.ensure(item);
+    ensure(action==='command','操作无效');requireRecord(store,user,'analyses',id);const item=store.get('analyses',id);ensure(item,'分析事项不存在',404);const writePermissions={'patch-stage':'analysis.manage','sync-source':'analysis.manage','archive-analysis':'analysis.manage','add-task':'tasks.assign','remove-cause':'tasks.assign','delete-task':'tasks.assign','configure-d2':'analysis.manage','assign-freeze-number':'analysis.manage','grid-assign':'analysis.manage','enable-nine-grid':'analysis.manage','grid-review':'tasks.review','finish-stage':'tasks.review','close':'tasks.review','accept-task':'tasks.review','return-task':'tasks.review','confirm-quality':'tasks.review','score-transfer':'tasks.review','create-measure':'analysis.manage','create-experiment':'analysis.manage','link-measure':'analysis.manage','link-experiment':'analysis.manage','select-prevention':'analysis.manage','reopen-linked':'analysis.manage','reopen-task':'analysis.manage','cancel-experiment':'analysis.manage','repeat-verification':'analysis.manage','confirm-lessons':'analysis.manage','simulate-order':'analysis.manage','simulate-production':'analysis.manage'};if(writePermissions[body.action])checkPermission(user,writePermissions[body.action]);
+    if(!manager){
+      if(['save-task','submit-task','verification-failed','transfer'].includes(body.action)){const task=item.workflow?.tasks?.find(t=>t.id===body.taskId);const configOnly=body.action==='save-task'&&hasPermission(user,'tasks.assign')&&Object.keys(body.patch||{}).every(k=>['title','scope','owner','reviewer','due','base','evidenceRequired','causeId','measureIds'].includes(k));ensure(task&&(task.owner===user.id||configOnly),'只能填写分派给自己的任务',403);}
+      if(['grid-save','grid-submit','grid-split'].includes(body.action)){const dimension=G.dimension(item,body.dimension),task=item.workflow?.tasks?.find(t=>t.id===dimension?.taskId);ensure(task&&task.owner===user.id,'只有被分派的责任人可以填写分析内容',403);}
+      if(['save-d2-fill','save-freeze-number'].includes(body.action))ensure(user.role==='freeze-clerk'&&item.freezeAssignment?.owner===user.id,'仅被分派的变更管理员可以填写冻结编号和数量',403);
+    }
+    requireVersion(item,body.version);ensure(item.status==='active','该分析已关闭或待审批，不能直接修改');W.ensure(item);
     const originalOwner=item.owner;if(manager)item.owner=user.id;
     const command=body.action;let t=item.workflow.tasks.find(t=>t.id===body.taskId),newTaskId='';
     if(!manager){
@@ -256,7 +262,7 @@ export function createWorkflowService({store,fileRoot,onClosed=async()=>{},clock
     const checkEngine=result=>{if(typeof result==='string'&&result)fail(result);if(result?.error)fail(result.error);if(result?.task)newTaskId=result.task.id;return result;};
     if(command==='grid-review')checkPermission(user,'tasks.review');
     if(t?.gridRoot||t?.kind==='grid'&&!['transfer','score-transfer'].includes(command))fail('九宫格分析须通过节点提交与审核接口处理',403);
-    if(command.startsWith('grid-')||command==='enable-nine-grid'){gridCommand(item,body,user,{G,W,manager,files,links,userBy,addMember,now});invalidate(item,command==='grid-assign'?'D1':'D4');item.owner=originalOwner;return persist(item,user,'九宫格：'+command,body.version,C,W,now);}
+    if(command.startsWith('grid-')||command==='enable-nine-grid'){gridCommand(item,body,user,{G,W,manager,files,links,userBy,addMember,now});invalidate(item,command==='grid-assign'?'D1':'D4');item.owner=originalOwner;return persist(item,user,'九宫格：'+command,body.version,C,W,now,{taskId:G.dimension(item,body.dimension)?.taskId,nodeId:body.nodeId,dimension:body.dimension});}
     if(command==='configure-d2'){
       management();checkPermission(user,'tasks.assign');const owner=userBy(body.owner);
       ensure(owner?.role==='freeze-clerk'&&enabled(owner),'请选择启用的变更管理员');ensure(dateValid(body.due),'请选择有效完成期限');
@@ -269,7 +275,7 @@ export function createWorkflowService({store,fileRoot,onClosed=async()=>{},clock
       Object.assign(d,{unified:true,major:body.major,batch:body.batch,freeze:body.freeze,reproductionDescription:str(body.reproductionDescription).slice(0,12000)});
       item.freezeAssignment={...(item.freezeAssignment||{}),owner:owner.id,due:body.due,status:task.status==='accepted'?'completed':'draft',taskId:task.id,history:[...(item.freezeAssignment?.history||[]),stamp(user,'保存D2分类并分派冻结编号及数量填报',now)]};
       addMember(item,owner.id,'填写冻结编号、SN生产数量及料号发货数量');taskSnapshot(item,task,now);invalidate(item,'D2');item.owner=originalOwner;
-      return persist(item,user,'D2设置与分派已保存，等待变更管理员填报',body.version,C,W,now);
+      return persist(item,user,'D2设置与分派已保存，等待变更管理员填报',body.version,C,W,now,{taskId:task.id});
     }
     if(command==='save-d2-fill'){checkPermission(user,'freeze.number.write');
       const d=item.workflow.d2,task=item.workflow.tasks.find(t=>t.id===d.fillTaskId&&t.kind==='d2-fill');
@@ -284,7 +290,7 @@ export function createWorkflowService({store,fileRoot,onClosed=async()=>{},clock
       task.data=next;
       if(body.submit){checkEngine(W.submitTask(item,task.id,now.toISOString()));taskSnapshot(item,task,now);if(d.freeze)d.freezeNumber=next.freezeNumber;Object.assign(item.freezeAssignment,{status:'completed',completedAt:now.toISOString()});}
       item.freezeAssignment.history||=[];item.freezeAssignment.history.push(stamp(user,body.submit?(correcting?'更正冻结编号与数量并完成，保留原提交记录':'提交冻结编号与数量并完成'):'保存冻结编号与数量草稿',now));invalidate(item,'D2');item.owner=originalOwner;
-      return persist(item,user,body.submit?'变更管理员完成D2填报（免验收、不计分）':'保存D2填报草稿',body.version,C,W,now);
+      return persist(item,user,body.submit?'变更管理员完成D2填报（免验收、不计分）':'保存D2填报草稿',body.version,C,W,now,{taskId:task.id});
     }
     if(command==='assign-freeze-number'){ensure(!item.workflow.d2.unified,'请通过D2统一窗口调整分派');management();const owner=userBy(body.owner);ensure(owner?.role==='freeze-clerk'&&owner.enabled!==false,'请选择变更管理员');ensure(dateValid(body.due),'请选择冻结编号完成期限');item.freezeAssignment={owner:owner.id,due:body.due,status:'draft',history:[...(item.freezeAssignment?.history||[]),stamp(user,'分派冻结编号填写',now)]};addMember(item,owner.id,'填写冻结编号');item.owner=originalOwner;return persist(item,user,'分派冻结编号',body.version,C,W,now);}
     if(command==='save-freeze-number'){ensure(!item.workflow.d2.unified,'请在D2统一窗口同时填写编号和数量');ensure(user.role==='freeze-clerk'&&item.freezeAssignment?.owner===user.id,'只能填写分派给自己的冻结编号',403);ensure(str(body.number)&&str(body.number).length<=100,'请填写有效冻结编号');item.workflow.d2.freezeNumber=str(body.number);item.freezeAssignment.status='completed';item.freezeAssignment.completedAt=now.toISOString();item.freezeAssignment.history.push(stamp(user,'提交冻结编号',now));item.owner=originalOwner;return persist(item,user,'提交冻结编号',body.version,C,W,now);}
@@ -345,7 +351,7 @@ export function createWorkflowService({store,fileRoot,onClosed=async()=>{},clock
     }
     if(newTaskId){const added=item.workflow.tasks.find(t=>t.id===newTaskId);if(added&&!added.reviewer)added.reviewer=user.id;}
     item.owner=originalOwner;
-    const saved=persist(item,user,'8D操作：'+command,body.version,C,W,now);
+    const saved=persist(item,user,'8D操作：'+command,body.version,C,W,now,{taskId:body.taskId||newTaskId||undefined});
     if(command==='close'){try{await onClosed(clone(saved));}catch(e){const current=store.get('analyses',id);store.put('analyses',id,{...current,pdf:{status:'failed',error:'PDF生成失败，请重试',requestedAt:now.toISOString()}},{expectedVersion:current.version,actor:user.id,event:'PDF生成失败'});}return decorate(store.get('analyses',id),C,W);}
     if(newTaskId)saved.newTaskId=newTaskId;return saved;
   }

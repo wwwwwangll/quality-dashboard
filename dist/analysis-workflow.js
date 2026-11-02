@@ -321,7 +321,7 @@
     if (task.kind === 'horizontal' && !text(task.scope)) add('missing', '缺少横向展开适用对象');
     if (task.kind === 'production' && !ensure(item).d8.production.productionAt) add('missing', '尚未记录首次生产事件，不能提前提交首产复核');
     if (!isQuantity(task) && !task.simpleFreeze && !task.simplifiedMeasure && !['rework','scheme'].includes(task.kind) && !text(task.result)) add('missing', '缺少任务结果或执行说明');
-    if (evidenceRequired(task) && !evidencePresent(task)) add('evidence', '缺少有效证据附件或资料链接');
+    if (evidenceRequired(task) && !evidencePresent(task)) add('evidence', ['rework','scheme'].includes(task.kind) ? '请上传对应返工方案文件，链接不能代替文件' : task.kind==='cause' ? '请上传本任务所需的图片证据' : '请上传有效证据附件或添加资料链接');
     return result;
   }
   function findTask(item, id) { return ensure(item).tasks.find(t => t.id === id); }

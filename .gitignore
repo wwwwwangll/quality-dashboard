@@ -22,3 +22,5 @@ backups/
 releases/
 .openai/
 RELEASE-MANIFEST.json
+
+local-app/upgrade-backups/
