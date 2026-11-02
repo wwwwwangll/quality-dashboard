@@ -4,11 +4,13 @@
  const W=window.AnalysisWorkflow,U=window.AnalysisWorkflowUI;
  const TODAY=C.dateNow(),STORE='quality-analysis-v2',FAULT_STORE='quality-faults-v2';
  let faults,items,storageWarning='';try{faults=JSON.parse(localStorage.getItem(FAULT_STORE))||C.seedFaults(TODAY);items=JSON.parse(localStorage.getItem(STORE))||C.seedItems(faults,TODAY)}catch{faults=C.seedFaults(TODAY);items=C.seedItems(faults,TODAY);storageWarning='浏览器记录无法读取，当前使用演示数据。'}
- try{if(!localStorage.getItem(STORE+'-before-workflow')&&localStorage.getItem(STORE))localStorage.setItem(STORE+'-before-workflow',localStorage.getItem(STORE))}catch{}
- try{if(!localStorage.getItem(STORE+'-before-v4')&&localStorage.getItem(STORE))localStorage.setItem(STORE+'-before-v4',localStorage.getItem(STORE))}catch{}
- try{if(!localStorage.getItem(STORE+'-before-cause-measure')&&localStorage.getItem(STORE))localStorage.setItem(STORE+'-before-cause-measure',localStorage.getItem(STORE))}catch{}
- try{if(!localStorage.getItem(STORE+'-before-stage-layout')&&localStorage.getItem(STORE))localStorage.setItem(STORE+'-before-stage-layout',localStorage.getItem(STORE))}catch{}
- try{if(!localStorage.getItem(STORE+'-before-quality-rules')&&localStorage.getItem(STORE))localStorage.setItem(STORE+'-before-quality-rules',localStorage.getItem(STORE))}catch{}
+ try{if(!localStorage.getItem(STORE+'-before-modern')&&localStorage.getItem(STORE))localStorage.setItem(STORE+'-before-modern',localStorage.getItem(STORE))}catch{}
+ const validFault=f=>f&&typeof f==='object'&&typeof f.id==='string'&&typeof f.date==='string';
+ const validItem=x=>x&&typeof x==='object'&&typeof x.id==='string'&&x.snapshot&&x.revised&&Array.isArray(x.team)&&C.stages.every(s=>x.stages?.[s.id]?.fields&&typeof x.stages[s.id].fields==='object');
+ if(!Array.isArray(faults)||!faults.every(validFault)||!Array.isArray(items)||!items.every(validItem)){
+  try{for(const key of [STORE,FAULT_STORE]){const original=localStorage.getItem(key);if(original)localStorage.setItem(key+'-invalid-'+Date.now(),original);}}catch{}
+  faults=C.seedFaults(TODAY);items=C.seedItems(faults,TODAY);storageWarning='原浏览器数据结构无效，已尝试保留原文备份，当前展示演示数据。';
+ }
  items.forEach(x=>W.ensure(x));
  for(const x of items)if(!faults.some(f=>f.id===x.faultId)&&x.snapshot)faults.push(copy(x.snapshot));
  try{localStorage.setItem(FAULT_STORE,JSON.stringify(faults));localStorage.setItem(STORE,JSON.stringify(items))}catch{storageWarning='本机存储受限，刷新后可能无法保留更新。'}

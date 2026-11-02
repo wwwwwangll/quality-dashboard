@@ -1,0 +1,24 @@
+# Business files and secrets never belong in code history.
+local-app/node_modules/
+local-app/data/
+local-app/runtime/
+local-app/.env
+local-app/.env.*
+local-app/config.local.json
+local-app/test-results/
+local-app/test-data/
+local-app/coverage/
+local-app/.build-tools/
+local-app/.run/
+local-app/logs/
+*.log
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+data-test/
+data-production/
+backups/
+releases/
+.openai/
+RELEASE-MANIFEST.json

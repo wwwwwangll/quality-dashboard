@@ -1,0 +1,19 @@
+{
+  "mode": "mock",
+  "enableLive": false,
+  "webhookEnvironment": "QUALITY_WECOM_WEBHOOK",
+  "notifications": {
+    "mode": "mock",
+    "enabled": false,
+    "dueSoonHours": 24,
+    "overdueHour": 10,
+    "baseUrl": "http://127.0.0.1:3868",
+    "groups": [
+      { "name": "质量问题测试群", "department": "*" }
+    ]
+  },
+  "accountMappingExample": {
+    "applicationUserId": "SYNTHETIC-USER",
+    "wecomUserId": "SYNTHETIC-WECOM-ID"
+  }
+}

@@ -24,7 +24,7 @@
   if(node.tagName==='DETAILS'){[...node.childNodes].filter(n=>n!==node.querySelector(':scope>summary')).forEach(n=>content.append(n));node.remove();}else content.append(node);
   if(key==='section:D2:basic'&&document.querySelector('.source-preview'))button.hidden=true;holder.append(button,slot);slot.append(content);entries.set(key,{key,title,slot,content});return holder;
  }
- function decorate(ctx){
+ function decorate(ctx){restore();
   const modalScroll=layer?.querySelector('.ad-body')?.scrollTop||0;context=ctx;const next=ctx.draft.id+'|'+ctx.tab;if(next!==identity){identity=next;stack=[]}entries=new Map();layer=null;
   const container=document.querySelector('#workDialogContent');
   // Group stage configuration as dialog entries as well as individual task forms.

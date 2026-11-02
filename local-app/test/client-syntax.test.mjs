@@ -1,0 +1,3 @@
+import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import path from 'node:path';import vm from 'node:vm';import {fileURLToPath} from 'node:url';
+const app=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
+test('交付的所有前端脚本可完整解析，避免接口通过但页面无法加载',()=>{const files=[...fs.readdirSync(path.join(app,'public')).filter(n=>n.endsWith('.js')).map(n=>path.join(app,'public',n)),...['analysis-core.js','analysis-workflow.js','analysis-workflow-ui.js'].map(n=>path.join(app,'../dist',n))];for(const f of files)assert.doesNotThrow(()=>new vm.Script(fs.readFileSync(f,'utf8'),{filename:f}));assert.ok(files.length>=6);});

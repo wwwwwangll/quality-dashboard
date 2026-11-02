@@ -68,7 +68,7 @@
     return target;
   }
   const causeSections = { occurrence: '产生原因', escape: '流出原因', occurrenceDept: '产生原因责任部门', escapeDept: '流出原因责任部门' };
-  const isQuantity = t => t.kind === 'quantity' && t.policyVersion === 4;
+  const isQuantity = t => ['quantity','d2-fill'].includes(t.kind) && t.policyVersion === 4;
   const evidenceRequired = t => t.simpleFreeze ? false : t.policyVersion === 4 ? !!t.evidenceRequired : true;
   const isQualityManager = actor => root.AnalysisCore?.isQualityManager(actor) === true;
   const reviewerFor = (item, t) => t.stage === 'D4' && t.kind === 'cause' ? 'me' : t.reviewer;
@@ -133,7 +133,7 @@
       for (const category of quantityCategories) if (!w.tasks.some(t => !t.archived && t.kind === 'quantity' && t.data.category === category)) {
         const t = newTask('D3', 'quantity', category + '数量确认'); t.data.category = category; w.tasks.push(t);
       }
-      for (const [section, title] of Object.entries(causeSections).filter(([key])=>key!=='occurrenceDept')) if (!w.tasks.some(t => !t.archived && t.kind === 'cause' && t.data.section === section)) {
+      for (const [section, title] of Object.entries(causeSections).filter(([key])=>!item.nineGrid&&key!=='occurrenceDept')) if (!w.tasks.some(t => !t.archived && t.kind === 'cause' && t.data.section === section)) {
         const t = newTask('D4', 'cause', title); t.data.section = section; w.tasks.push(t);
       }
     }
@@ -176,7 +176,7 @@
     return w;
   }
   function causes(item){return (item.workflow?.tasks||[]).filter(t=>!t.archived&&t.kind==='cause'&&['occurrence','escape'].includes(t.data.section));}
-  function causeReady(item,t){return !!t&&t.status==='accepted'&&currentSubmission(t)&&text(t.result)&&(!item.workflow.uiRevision6||t.id!==item.workflow.d4.occurrenceTaskId||item.workflow.d4.occurrenceResponsibility.confirmed);}
+  function causeReady(item,t){return !!t&&t.status==='accepted'&&currentSubmission(t)&&text(t.result)&&(t.gridRoot||!item.workflow.uiRevision6||t.id!==item.workflow.d4.occurrenceTaskId||item.workflow.d4.occurrenceResponsibility.confirmed);}
   function measureIssues(item,t){const c=causes(item).find(c=>c.id===t.causeId);
     if(!c)return '请关联本次分析中的具体产生原因或流出原因';
     if(!causeReady(item,c))return '对应原因尚未确认，请先在D4确认';
@@ -255,9 +255,10 @@
   }
   function taskEnabled(item, task) {
     const w = ensure(item);
-    if (task.archived || task.previousPlan || task.mergedOccurrenceHistory || task.d7Deselected || task.previousProduction || task.experimentCancelled) return false;
+    if (task.gridRoot || task.archived || task.previousPlan || task.mergedOccurrenceHistory || task.d7Deselected || task.previousProduction || task.experimentCancelled) return false;
     if (task.previousReworkArea) return false;
     if (task.previousFreezeRecord) return false;
+    if(w.d2.unified && task.stage==='D2' && ['sn','freeze'].includes(task.kind)) return false;
     if (task.kind==='sn' && w.uiRevision5 && (w.d2.freeze || task.id!==w.d2.primarySnId)) return false;
     if (task.retired && task.status !== 'accepted') return false;
     if (optionalStages.includes(task.stage) && item.stages && item.stages[task.stage] && item.stages[task.stage].na && text(item.stages[task.stage].naReason)) return false;
@@ -280,6 +281,10 @@
       if (!hasNumber(data.quantity) || !Number.isInteger(Number(data.quantity))) add('missing', '数量须为非负整数（未知留空，确认没有填0）');
       if (isQuantity(task) && data.unit !== 'pcs') add('missing', '数量单位必须为pcs');
       if (task.unitReview) add('missing', task.unitReview);
+    }
+    if(task.kind==='d2-fill'){
+      for(const [k,label] of [['productionQty','SN对应生产数量'],['shippedQty','料号发货数量']])if(!hasNumber(data[k])||!Number.isSafeInteger(Number(data[k])))add('missing',label+'须为非负整数（未知请保存草稿，无则填0）');
+      if(ensure(item).d2.freeze&&!text(data.freezeNumber))add('missing','缺少冻结编号');
     }
     if (task.kind === 'cause') {
       if (!causeSections[data.section]) add('missing', 'D4分区无效');
@@ -315,7 +320,7 @@
     if(task.kind==='cause'&&task.id===item.workflow.d4.occurrenceTaskId){const e=occurrenceIssues(item);if(e)add('missing',e);}
     if (task.kind === 'horizontal' && !text(task.scope)) add('missing', '缺少横向展开适用对象');
     if (task.kind === 'production' && !ensure(item).d8.production.productionAt) add('missing', '尚未记录首次生产事件，不能提前提交首产复核');
-    if (!isQuantity(task) && !task.simpleFreeze && !task.simplifiedMeasure && !text(task.result)) add('missing', '缺少任务结果或执行说明');
+    if (!isQuantity(task) && !task.simpleFreeze && !task.simplifiedMeasure && !['rework','scheme'].includes(task.kind) && !text(task.result)) add('missing', '缺少任务结果或执行说明');
     if (evidenceRequired(task) && !evidencePresent(task)) add('evidence', '缺少有效证据附件或资料链接');
     return result;
   }
@@ -325,7 +330,17 @@
   }
   function currentSubmission(task) {
     const submission = (task.submissions || []).at(-1);
-    return !submission || submission.at === task.submittedAt && (!submission.payload || submission.payload === taskPayload(task));
+    if (!submission) return true;
+    if (submission.at !== task.submittedAt) return false;
+    if (!submission.payload) return true;
+    // Compare values, preserving array order but ignoring object insertion order.
+    // Old payload strings are read without rewriting their historical snapshots.
+    const canonical = value => JSON.stringify(value, function(key, entry) {
+      return entry && typeof entry === 'object' && !Array.isArray(entry)
+        ? Object.fromEntries(Object.keys(entry).sort().map(k => [k, entry[k]])) : entry;
+    });
+    try { return canonical(JSON.parse(submission.payload)) === canonical(JSON.parse(taskPayload(task))); }
+    catch (_) { return false; }
   }
   function submitTask(item, id, at) {
     const task = findTask(item, id);
@@ -446,7 +461,7 @@
   function contribution(item) {
     const w = ensure(item), rows = (item.team || []).map(member => ({ ...member, base: 0, bonus: 0, share: 0, pending: 0 }));
     const byPerson = new Map(rows.map(row => [row.personId, row]));
-    for (const task of w.tasks.filter(t => t.status === 'accepted' || taskEnabled(item, t))) {
+    for (const task of w.tasks.filter(t => !t.gridRoot && (t.status === 'accepted' || taskEnabled(item, t)))) {
       const row = byPerson.get(task.owner); if (!row || isQuantity(task)) continue;
       const points = taskPoints(task);
       if (points === null) row.pending += 1; else row.base += points;
@@ -488,9 +503,9 @@
       if(item.stages.D1.requiresEvidence&&!hasEvidence(item.stages.D1))issues.push({type:'evidence',label:'D1团队组建缺少要求的证据'});
     }
     if (id === 'D2') {
-      if (!text(w.d2.reproductionDescription)) add('缺少报故现场的故障复现描述');
-      if(!w.d2.freeze)requireKind('sn', '请分派SN涉及生产数量确认任务');
-      if (w.d2.freeze) {
+      if(w.d2.unified){requireKind('d2-fill','请分派变更管理员及完成期限');}
+      else if(!w.d2.freeze)requireKind('sn', '请分派SN涉及生产数量确认任务');
+      if (w.d2.freeze&&!w.d2.unified) {
         if (!text(w.d2.freezeNumber)) add('缺少冻结编号');
         requireKind('freeze', '请分派产品冻结执行任务');
       }
@@ -550,7 +565,7 @@
       if (['D1', 'D2', 'D4', 'D6', 'D8'].includes(id)) return [{ type: 'missing', label: id + '是必要阶段，不能标记不适用' }];
       return text(stage.naReason) ? [] : [{ type: 'missing', label: '请填写本阶段不适用的原因' }];
     }
-    const issues = includeExisting ? Object.entries(id === 'D4' || id==='D7'&&w.uiRevision6 || ['D5','D6'].includes(id)&&w.uiRevision7 ? {} : oldFields[id]).filter(([key]) => !text((stage.fields || {})[key])).map(([, label]) => ({ type: 'missing', label: '缺少' + label })) : [];
+    const issues = includeExisting ? Object.entries(id === 'D3' || id === 'D4' || id==='D7'&&w.uiRevision6 || ['D5','D6'].includes(id)&&w.uiRevision7 ? {} : oldFields[id]).filter(([key]) => !text((stage.fields || {})[key])).map(([, label]) => ({ type: 'missing', label: '缺少' + label })) : [];
     issues.push(...stageAdditions(item, id));
     if (includeExisting && id === 'D2') {
       const revised = item.revised || {}, snapshot = item.snapshot || {};
@@ -662,6 +677,11 @@
     return item;
   }
   const api = { causes,causeReady,measureIssues,linkMeasure,createMeasure,experimentMeasures,experimentLinksIssue,linkExperiment,createExperiment,cancelExperiment,reopenLinkedTask,experimentSummary, preventionGroups, preventionOptions, selectPrevention, isLesson, occurrenceIssues, isQualityManager, setEvidenceRequirement, confirmQualityTask, isQuantity, evidenceRequired, evidencePresent, reviewerFor, causeSections, currentSubmission, ensure, newTask, taskEnabled, taskIssues, submitTask, acceptTask, returnTask, repeatVerification, replacementFor, timing, taskPoints, contribution, validateBonuses, validateStage, checklist, progress, stageComplete, createRecurrence, simulateOrder, simulateProduction, refreshReminder, monthDueDate, quantityCategories, toolOptions, hasEvidence };
+  // Read APIs operate on a migrated snapshot; only explicit commands migrate records.
+  for (const key of ['checklist','progress','stageComplete','validateStage','contribution']) {
+    const read = api[key];
+    api[key] = (item, ...args) => read(clone(item), ...args);
+  }
   root.AnalysisWorkflow = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);
