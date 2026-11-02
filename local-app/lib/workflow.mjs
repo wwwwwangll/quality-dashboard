@@ -274,13 +274,16 @@ export function createWorkflowService({store,fileRoot,onClosed=async()=>{},clock
     if(command==='save-d2-fill'){checkPermission(user,'freeze.number.write');
       const d=item.workflow.d2,task=item.workflow.tasks.find(t=>t.id===d.fillTaskId&&t.kind==='d2-fill');
       ensure(d.unified&&task,'请先由质量工程师完成D2分派');ensure(user.role==='freeze-clerk'&&enabled(user)&&task.owner===user.id,'仅被分派的变更管理员可以填写冻结编号和数量',403);
-      ensure(['draft','returned'].includes(task.status),'此填报已经完成，不能重复提交');
+      ensure(['draft','returned','accepted'].includes(task.status),'此填报当前不可修改');
       const data=body.data;cleanObject(data);ensure(Object.keys(data).every(k=>['freezeNumber','productionQty','shippedQty'].includes(k)),'填报字段无效');
       const next={...task.data};for(const key of ['productionQty','shippedQty'])if(Object.hasOwn(data,key)){const v=str(data[key]);ensure(v===''||/^\d+$/.test(v)&&Number.isSafeInteger(Number(v)), '数量须为非负整数（未知留空，无则填0）');next[key]=v===''?'':Number(v);}
       if(Object.hasOwn(data,'freezeNumber')){ensure(str(data.freezeNumber).length<=100,'冻结编号最多100字');next.freezeNumber=str(data.freezeNumber);}
+      const correcting=task.status==='accepted';
+      if(correcting&&JSON.stringify(next)===JSON.stringify(task.data))return decorate(item,C,W);
+      if(correcting){task.status='draft';task.submittedAt='';task.acceptedAt='';task.acceptedBy='';task.completedAt='';task.completedDept='';Object.assign(item.freezeAssignment,{status:'draft',completedAt:''});}
       task.data=next;
       if(body.submit){checkEngine(W.submitTask(item,task.id,now.toISOString()));taskSnapshot(item,task,now);if(d.freeze)d.freezeNumber=next.freezeNumber;Object.assign(item.freezeAssignment,{status:'completed',completedAt:now.toISOString()});}
-      item.freezeAssignment.history||=[];item.freezeAssignment.history.push(stamp(user,body.submit?'提交冻结编号与数量并完成':'保存冻结编号与数量草稿',now));invalidate(item,'D2');item.owner=originalOwner;
+      item.freezeAssignment.history||=[];item.freezeAssignment.history.push(stamp(user,body.submit?(correcting?'更正冻结编号与数量并完成，保留原提交记录':'提交冻结编号与数量并完成'):'保存冻结编号与数量草稿',now));invalidate(item,'D2');item.owner=originalOwner;
       return persist(item,user,body.submit?'变更管理员完成D2填报（免验收、不计分）':'保存D2填报草稿',body.version,C,W,now);
     }
     if(command==='assign-freeze-number'){ensure(!item.workflow.d2.unified,'请通过D2统一窗口调整分派');management();const owner=userBy(body.owner);ensure(owner?.role==='freeze-clerk'&&owner.enabled!==false,'请选择变更管理员');ensure(dateValid(body.due),'请选择冻结编号完成期限');item.freezeAssignment={owner:owner.id,due:body.due,status:'draft',history:[...(item.freezeAssignment?.history||[]),stamp(user,'分派冻结编号填写',now)]};addMember(item,owner.id,'填写冻结编号');item.owner=originalOwner;return persist(item,user,'分派冻结编号',body.version,C,W,now);}

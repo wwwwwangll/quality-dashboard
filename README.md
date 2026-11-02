@@ -1,6 +1,6 @@
 # 质见 · 售后质量管理与8D分析
 
-当前本机版：**4.1.0**。完整服务端、前端、自动测试、Windows 部署脚本与使用说明均在本仓库。
+当前本机版：**4.1.1**。完整服务端、前端、自动测试、Windows 部署脚本与使用说明均在本仓库。
 
 ## 两种运行方式
 
@@ -26,7 +26,7 @@
 
 ## 审查入口
 
-先阅读 `4.1.0更新与审查核对.md` 与 `公司部署与DeepSeek交接.md`。重点审查 `local-app/lib/`、`local-app/server.mjs`、`local-app/public/`、共享引擎 `dist/analysis-core.js`／`dist/analysis-workflow.js` 和 `local-app/test/`；单独检查 `dist` 无法评价真实账号与后端权限。
+先阅读 `4.1.1-D2更正说明.md`、`4.1.0更新与审查核对.md` 与 `公司部署与DeepSeek交接.md`。重点审查 `local-app/lib/`、`local-app/server.mjs`、`local-app/public/`、共享引擎 `dist/analysis-core.js`／`dist/analysis-workflow.js` 和 `local-app/test/`；单独检查 `dist` 无法评价真实账号与后端权限。
 
 测试包、数据库、账号密码文件、真实附件、PDF 与备份不提交到 Git。Git 保存代码版本，数据库和附件需独立备份与恢复。
 
