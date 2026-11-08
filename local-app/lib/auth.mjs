@@ -7,14 +7,14 @@ let passwordOperations=0;
 async function derive(password,salt){if(passwordOperations>=2)throw appError('密码验证繁忙，请稍后重试',429);passwordOperations++;try{return await scrypt(password,salt,64,{N:131072,r:8,p:1,maxmem:256*1024*1024});}finally{passwordOperations--;}}
 export const permissionOptions=[
  ['analysis.manage','管理8D、团队和阶段'],['analysis.start','开启8D'],['tasks.assign','分派任务'],['tasks.review','验收、判责和关单'],['tasks.transfer','转交自己的未完成任务'],['imports.manage','导入OA数据'],['preliminary.write','填写自己的初步失效分析'],['freeze.number.write','填写分派的冻结编号']
-].map(([key,label])=>({key,label}));
+].concat([['dashboard.view','查看公司看板'],['analysis.view','查看8D及任务'],['faults.view','查看报故及初步分析'],['claims.view','查看索赔'],['files.view','查看附件'],['pdf.view','查看已关闭PDF'],['tasks.submit','填写并提交本人任务'],['analysis.close','最终关单']]).map(([key,label])=>({key,label}));
 export const roles=[{id:'admin',name:'管理员'},{id:'quality-engineer',name:'质量工程师'},{id:'failure-analyst',name:'失效分析人员'},{id:'worker',name:'执行人员'},{id:'viewer',name:'看板与报告查看'},{id:'freeze-clerk',name:'变更管理员'}];
 const business=permissionOptions.map(p=>p.key);
 const defaults={'admin':['*'],'quality-engineer':business,'failure-analyst':['preliminary.write','tasks.transfer'],'worker':['tasks.transfer'],'viewer':[],'freeze-clerk':['freeze.number.write']};
-export const permissionsFor=user=>user?.enabled===false?[]:user?.role==='admin'?['*']:Array.isArray(user?.permissions)?user.permissions.filter(p=>business.includes(p)):defaults[user?.role]||[];
+export const permissionsFor=user=>{if(!user||user.enabled===false)return [];if(user.role==='admin')return ['*'];if(user.groupId){const set=new Set((user._group?.permissions||[]).filter(p=>business.includes(p)));for(const [p,v]of Object.entries(user.permissionOverrides||{})){if(!business.includes(p))continue;if(v==='allow')set.add(p);if(v==='deny')set.delete(p);}return [...set];}return Array.isArray(user.permissions)?user.permissions.filter(p=>business.includes(p)):defaults[user.role]||[];};
 export const hasPermission=(user,key)=>!!user&&user.enabled!==false&&(user.role==='admin'||(!['users.manage','system.manage'].includes(key)&&permissionsFor(user).includes(key)));
 export function requirePermission(user,key){if(!hasPermission(user,key))throw appError('当前账号没有此操作权限',403)}
-export function publicUser(user){if(!user)return null;return {id:user.id,version:user.version,username:user.username,name:user.name,dept:user.dept||'',role:user.role,permissions:permissionsFor(user),enabled:user.enabled!==false,archived:!!user.archived,wecomUserId:user.wecomUserId||'',mustChangePassword:!!user.mustChangePassword,createdAt:user.createdAt};}
+export function publicUser(user){if(!user)return null;return {id:user.id,version:user.version,username:user.username,name:user.name,dept:user.dept||'',role:user.role,permissions:permissionsFor(user),enabled:user.enabled!==false,archived:!!user.archived,wecomUserId:user.wecomUserId||'',mustChangePassword:!!user.mustChangePassword,createdAt:user.createdAt,groupId:user.groupId||'',groupName:user._group?.name||'',permissionOverrides:user.permissionOverrides||{},d2FillEligible:!!user.d2FillEligible};}
 export function validatePassword(value){if(typeof value!=='string'||value.length<10||value.length>128)throw appError('密码须为10至128位');return value;}
 export async function hashPassword(password){validatePassword(password);const salt=randomBytes(24).toString('hex');const hash=await derive(password,salt);return `scrypt-v1$${salt}$${hash.toString('hex')}`;}
 export async function verifyPassword(password,encoded){if(typeof password!=='string'||password.length>128)return false;const [type,salt,hex]=String(encoded||'').split('$');if(type!=='scrypt-v1'||!salt||!/^[a-f0-9]{128}$/.test(hex||''))return false;const hash=await derive(password,salt);return timingSafeEqual(hash,Buffer.from(hex,'hex'));}
@@ -24,7 +24,8 @@ export function validatedUser(input,old=null){
  const name=String(input.name??old?.name??'').trim();if(!name||name.length>80)throw appError('请填写有效姓名');
  const permissions=input.permissions??old?.permissions??defaults[role];if(!Array.isArray(permissions)||role!=='admin'&&permissions.some(p=>!business.includes(p)))throw appError('权限配置无效，非管理员不能取得账号或系统管理权限');
  if(input.enabled!==undefined&&typeof input.enabled!=='boolean')throw appError('账号启用状态必须是布尔值');
- return {username,name,dept:String(input.dept??old?.dept??'').trim().slice(0,80),role,permissions:role==='admin'?['*']:[...new Set(permissions)],enabled:input.enabled??old?.enabled??true,wecomUserId:String(input.wecomUserId??old?.wecomUserId??'').trim().slice(0,128)};
+ const groupId=String(input.groupId??old?.groupId??'');const permissionOverrides=input.permissionOverrides??old?.permissionOverrides??{};if(!permissionOverrides||typeof permissionOverrides!=='object'||Array.isArray(permissionOverrides)||Object.entries(permissionOverrides).some(([k,v])=>!business.includes(k)||!['inherit','allow','deny'].includes(v)))throw appError('个人权限必须选择继承、允许或禁止');
+ return {groupId,permissionOverrides,d2FillEligible:input.d2FillEligible===undefined?!!old?.d2FillEligible:input.d2FillEligible===true,username,name,dept:String(input.dept??old?.dept??'').trim().slice(0,80),role,permissions:role==='admin'?['*']:[...new Set(permissions)],enabled:input.enabled??old?.enabled??true,wecomUserId:String(input.wecomUserId??old?.wecomUserId??'').trim().slice(0,128)};
 }
 export function createAuth(store){
  const cookieName='quality_session_'+store.environment;

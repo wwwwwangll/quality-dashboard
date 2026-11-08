@@ -11,12 +11,16 @@
     if(t.kind==='production'&&!item.workflow.d8.production.productionAt)return [];
     if(t.kind!=='grid')return [{stage:t.stage,taskId:t.id,label:t.title,due:t.due}];
     const d=item.nineGrid?.dimensions.find(d=>d.taskId===t.id);
-    return d?G.leaves(d.nodes).filter(n=>['draft','returned'].includes(n.review)).map(n=>({stage:'D4',taskId:t.id,dimension:d.id,nodeId:n.id,label:d.label+' / L'+n.level+' '+n.label,due:t.due})):[];
+    return d?G.reviewNodes(d).filter(G.nodeDraft).map(n=>({stage:'D4',taskId:t.id,dimension:d.id,nodeId:n.id,label:d.label+' / L'+n.level+' '+(n.label||'待填写标题'),due:t.due})):[];
    });
  }
  function allowed(item,user,taskId,nodeId='',W=root.AnalysisWorkflow,G=root.NineGrid){
   if(manager(user))return true;
-  const first=pending(item,user,W,G)[0];
+  const queue=pending(item,user,W,G),first=queue[0];
+  if(item?.nineGrid?.version===2&&first?.stage==='D4'&&queue.some(row=>row.taskId===taskId&&row.dimension)){
+   const d=item.nineGrid.dimensions.find(d=>d.taskId===taskId);
+   return !nodeId||G.flat(d.nodes).some(n=>n.id===nodeId&&G.nodeDraft(n));
+  }
   return !!first&&first.taskId===taskId&&(!nodeId||first.nodeId===nodeId);
  }
  root.TaskSequence={pending,allowed,manager};

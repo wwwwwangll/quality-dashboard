@@ -60,7 +60,7 @@ try {
 $qualityRecord = @{ pid=$qualityStarted.Id; environment=$Environment; port=$Port; nodePath=$qualityNodePath; serverPath=$qualityServerPath; dataDir=$qualityDataDir; startTicks=$qualityStarted.StartTime.ToFileTimeUtc().ToString(); stopToken=$qualityStopToken; controlFile=$qualityControlFile }
 [System.IO.File]::WriteAllText($qualityPidFile,($qualityRecord | ConvertTo-Json),[System.Text.UTF8Encoding]::new($false))
 $qualityReady = $false
-for ($qualityAttempt = 0; $qualityAttempt -lt 50; $qualityAttempt++) {
+for ($qualityAttempt = 0; $qualityAttempt -lt 450; $qualityAttempt++) {
   $qualityStarted.Refresh()
   if ($qualityStarted.HasExited) { throw ('服务启动失败，请查看：' + $qualityStderr) }
   try { $qualityStatus = Invoke-RestMethod -Uri ($qualityUrl + '/api/status') -TimeoutSec 1; if ($qualityStatus.application -eq 'quality-dashboard-local' -and $qualityStatus.environment -eq $Environment) { $qualityReady = $true; break } } catch { }
@@ -69,5 +69,5 @@ for ($qualityAttempt = 0; $qualityAttempt -lt 50; $qualityAttempt++) {
 if (-not $qualityReady) { throw ('服务没有按时就绪，请查看日志；可运行停止服务.cmd后重试。日志：' + $qualityStderr) }
 Write-Host ('服务已启动：' + $qualityUrl + ' [' + $Environment + ']')
 Write-Host ('数据目录：' + $qualityDataDir)
-if ($Environment -eq 'test') { Write-Host ('测试账号与随机密码：' + (Join-Path $qualityDataDir '测试账号.txt')) }
+if ($Environment -eq 'test') { Write-Host ('固定初始密码表（安装包根目录也有一份）：' + (Join-Path $qualityDataDir '测试账号.txt')) }
 if (-not $NoBrowser) { Start-Process $qualityUrl -WindowStyle Normal }

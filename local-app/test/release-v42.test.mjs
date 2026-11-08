@@ -15,7 +15,15 @@ before(async()=>{runtime=await startServer({dataDir:dir,environment:'test',testM
 after(async()=>{await runtime.close();fs.rmSync(dir,{recursive:true,force:true});});
 async function analysis(mode){const id='BG-SYNTHETIC-'+(++serial);store.put('faults',id,{date:'2026-11-01',product:'模拟显示屏',material:'SYN-PN',sn:'SYN-SN',description:'模拟黑屏'});const r=await qe('/api/analyses',{faultId:id,...(mode?{mode}: {})});assert.equal(r.status,201);return r.data.id;}
 const cmd=(as,id,action,body={})=>as('/api/analyses/'+id+'/commands',{action,version:store.get('analyses',id).version,...body});
-async function assignedGrid(evidenceRequired=true){const id=await analysis('nine-grid');const r=await cmd(qe,id,'grid-assign',{dimension:'design',owner:'worker',due:'2026-11-15',base:2,evidenceRequired});assert.equal(r.status,200);return {id,node:r.data.nineGrid.dimensions[0].nodes[0].id,taskId:r.data.nineGrid.dimensions[0].taskId};}
+async function assignedGrid(evidenceRequired=true){
+ const id=await analysis('nine-grid'),legacy=store.get('analyses',id),{G}=wf.engine();
+ legacy.nineGrid.version=1;
+ for(const d of legacy.nineGrid.dimensions)d.nodes=G.nodes(G.dims.find(([key])=>key===d.id)[2]);
+ store.put('analyses',id,legacy);
+ const r=await cmd(qe,id,'grid-assign',{dimension:'design',owner:'worker',due:'2026-11-15',base:2,evidenceRequired});
+ assert.equal(r.status,200);
+ return {id,node:r.data.nineGrid.dimensions[0].nodes[0].id,taskId:r.data.nineGrid.dimensions[0].taskId};
+}
 
 test('附件与PDF的大小写变体均不可绕过范围，已授权标准路径仍可读',async()=>{
  store.put('files','SYN-SECRET',{name:'模拟独立附件.txt',type:'text/plain',size:14,uploadedBy:'admin'});fs.writeFileSync(path.join(store.fileRoot,'SYN-SECRET'),'SYNTHETIC ONLY');

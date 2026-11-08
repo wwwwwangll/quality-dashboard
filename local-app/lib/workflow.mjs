@@ -3,7 +3,8 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
-import { hasPermission } from './auth.mjs';
+import { hasPermission,permissionsFor } from './auth.mjs';
+import {d2Eligible} from './group-policy.mjs';
 import {gridCommand} from './grid-service.mjs';
 import {scopedData,requireRecord,globalView,canReadFile} from './access.mjs';
 
@@ -67,7 +68,7 @@ function periodRange(period, date, now) {
 }
 
 export function createWorkflowService({store,fileRoot,onClosed=async()=>{},clock=()=>new Date()}) {
-  const allUsers=()=>store.list('users');
+  const allUsers=()=>[...store.list('users'),...store.list('historicalPeople').filter(p=>!store.get('users',p.id))];
   const userBy=id=>allUsers().find(u=>u.id===id);
   const stamp=(user,text,now)=>({at:now.toISOString(),actor:user.name,actorId:user.id,text});
   const history=(item,user,text,now)=>{item.history ||= [];item.history.push(stamp(user,text,now));};
@@ -80,7 +81,7 @@ export function createWorkflowService({store,fileRoot,onClosed=async()=>{},clock
   function links(input) {
     ensure(Array.isArray(input)&&input.length<=100,'证据链接列表无效');return input.map(l=>{const name=str(l.name);let url;try{url=new URL(l.url);}catch{fail('请输入有效证据名称和链接');}ensure(name&&['http:','https:'].includes(url.protocol),'请输入有效证据名称和链接');return {name,url:url.href};});
   }
-  function usersForEngine(){return allUsers().map(u=>({...u,enabled:enabled(u)}));}
+  function usersForEngine(){return allUsers().map(u=>({...u,groupId:'',permissions:permissionsFor(u),enabled:enabled(u)}));}
   function validateTaskActor(item,t,user,manager) { ensure(t,'任务不存在',404);ensure(item.status==='active','已关闭或待审批事项不能修改');ensure(manager||t.owner===user.id,'只能填写分派给自己的任务',403);ensure(['draft','returned'].includes(t.status),'任务已提交或已验收，不能直接修改'); }
   function addMember(item,id,role='任务协作') {if(!item.team.some(m=>m.personId===id))item.team.push({personId:id,role});else item.team.find(m=>m.personId===id).inactive=false;}
   function invalidate(item,from) {const index=STAGES.indexOf(from);for(const stage of STAGES.slice(index))item.stages[stage].done=false;if(STAGES.indexOf(item.stage)>index)item.stage=from;}
@@ -237,18 +238,18 @@ export function createWorkflowService({store,fileRoot,onClosed=async()=>{},clock
     if(action==='get'){
       const item=requireRecord(store,user,'analyses',id);return decorate(item,C,W);
     }
-    ensure(action==='command','操作无效');requireRecord(store,user,'analyses',id);const item=store.get('analyses',id);ensure(item,'分析事项不存在',404);const writePermissions={'patch-stage':'analysis.manage','sync-source':'analysis.manage','archive-analysis':'analysis.manage','add-task':'tasks.assign','remove-cause':'tasks.assign','delete-task':'tasks.assign','configure-d2':'analysis.manage','assign-freeze-number':'analysis.manage','grid-assign':'analysis.manage','enable-nine-grid':'analysis.manage','grid-review':'tasks.review','finish-stage':'tasks.review','close':'tasks.review','accept-task':'tasks.review','return-task':'tasks.review','confirm-quality':'tasks.review','score-transfer':'tasks.review','create-measure':'analysis.manage','create-experiment':'analysis.manage','link-measure':'analysis.manage','link-experiment':'analysis.manage','select-prevention':'analysis.manage','reopen-linked':'analysis.manage','reopen-task':'analysis.manage','cancel-experiment':'analysis.manage','repeat-verification':'analysis.manage','confirm-lessons':'analysis.manage','simulate-order':'analysis.manage','simulate-production':'analysis.manage'};if(writePermissions[body.action])checkPermission(user,writePermissions[body.action]);
+    ensure(action==='command','操作无效');requireRecord(store,user,'analyses',id);const item=store.get('analyses',id);ensure(item,'分析事项不存在',404);const writePermissions={'patch-stage':'analysis.manage','sync-source':'analysis.manage','archive-analysis':'analysis.manage','add-task':'tasks.assign','remove-cause':'tasks.assign','delete-task':'tasks.assign','configure-d2':'analysis.manage','assign-freeze-number':'analysis.manage','grid-assign':'analysis.manage','enable-nine-grid':'analysis.manage','grid-review':'tasks.review','finish-stage':'tasks.review','close':'tasks.review','accept-task':'tasks.review','return-task':'tasks.review','confirm-quality':'tasks.review','score-transfer':'tasks.review','create-measure':'analysis.manage','create-experiment':'analysis.manage','link-measure':'analysis.manage','link-experiment':'analysis.manage','select-prevention':'analysis.manage','reopen-linked':'analysis.manage','reopen-task':'analysis.manage','cancel-experiment':'analysis.manage','repeat-verification':'analysis.manage','confirm-lessons':'analysis.manage','simulate-order':'analysis.manage','simulate-production':'analysis.manage'};if(writePermissions[body.action])checkPermission(user,writePermissions[body.action]);if(user.groupId&&['configure-d2','assign-freeze-number','grid-assign','add-task','create-measure','create-experiment','select-prevention'].includes(body.action))checkPermission(user,'tasks.assign');if(user.groupId&&body.action==='close')checkPermission(user,'analysis.close');if(user.groupId&&['save-task','submit-task','grid-save','grid-submit','grid-split','grid-add','grid-remove','save-d2-fill','save-freeze-number'].includes(body.action))checkPermission(user,'tasks.submit');
     if(!manager){
       if(['save-task','submit-task','verification-failed','transfer'].includes(body.action)){const task=item.workflow?.tasks?.find(t=>t.id===body.taskId);const configOnly=body.action==='save-task'&&hasPermission(user,'tasks.assign')&&Object.keys(body.patch||{}).every(k=>['title','scope','owner','reviewer','due','base','evidenceRequired','causeId','measureIds'].includes(k));ensure(task&&(task.owner===user.id||configOnly),'只能填写分派给自己的任务',403);}
-      if(['grid-save','grid-submit','grid-split'].includes(body.action)){const dimension=G.dimension(item,body.dimension),task=item.workflow?.tasks?.find(t=>t.id===dimension?.taskId);ensure(task&&task.owner===user.id,'只有被分派的责任人可以填写分析内容',403);}
-      if(['save-d2-fill','save-freeze-number'].includes(body.action))ensure(user.role==='freeze-clerk'&&item.freezeAssignment?.owner===user.id,'仅被分派的变更管理员可以填写冻结编号和数量',403);
+      if(['grid-save','grid-submit','grid-split','grid-add','grid-remove'].includes(body.action)){const dimension=G.dimension(item,body.dimension),task=item.workflow?.tasks?.find(t=>t.id===dimension?.taskId);ensure(task&&task.owner===user.id,'只有被分派的责任人可以填写分析内容',403);}
+      if(['save-d2-fill','save-freeze-number'].includes(body.action))ensure(d2Eligible(user)&&item.freezeAssignment?.owner===user.id,'仅被分派的变更管理员可以填写冻结编号和数量',403);
     }
     requireVersion(item,body.version);ensure(item.status==='active','该分析已关闭或待审批，不能直接修改');W.ensure(item);
     const originalOwner=item.owner;if(manager)item.owner=user.id;
     const command=body.action;let t=item.workflow.tasks.find(t=>t.id===body.taskId),newTaskId='';
     if(!manager){
       const output=['save-task','submit-task','verification-failed'].includes(command);
-      const nodeOutput=['grid-save','grid-submit','grid-split'].includes(command);
+      const nodeOutput=['grid-save','grid-submit','grid-split','grid-add','grid-remove'].includes(command);
       const gridTask=nodeOutput?item.workflow.tasks.find(v=>v.id===G.dimension(item,body.dimension)?.taskId):null;
       if(output&&t?.owner===user.id||nodeOutput&&gridTask?.owner===user.id){
         const next=F.pending(item,user,W,G)[0];
@@ -265,7 +266,7 @@ export function createWorkflowService({store,fileRoot,onClosed=async()=>{},clock
     if(command.startsWith('grid-')||command==='enable-nine-grid'){gridCommand(item,body,user,{G,W,manager,files,links,userBy,addMember,now});invalidate(item,command==='grid-assign'?'D1':'D4');item.owner=originalOwner;return persist(item,user,'九宫格：'+command,body.version,C,W,now,{taskId:G.dimension(item,body.dimension)?.taskId,nodeId:body.nodeId,dimension:body.dimension});}
     if(command==='configure-d2'){
       management();checkPermission(user,'tasks.assign');const owner=userBy(body.owner);
-      ensure(owner?.role==='freeze-clerk'&&enabled(owner),'请选择启用的变更管理员');ensure(dateValid(body.due),'请选择有效完成期限');
+      ensure(d2Eligible(owner)&&enabled(owner),'请选择启用的变更管理员');ensure(dateValid(body.due),'请选择有效完成期限');
       for(const key of ['major','batch','freeze'])ensure(typeof body[key]==='boolean','问题分类与冻结选项无效');
       const d=item.workflow.d2;let task=item.workflow.tasks.find(t=>t.id===d.fillTaskId&&t.kind==='d2-fill');
       const changed=!task||task.owner!==owner.id||task.due!==body.due||d.freeze!==body.freeze;
@@ -279,7 +280,7 @@ export function createWorkflowService({store,fileRoot,onClosed=async()=>{},clock
     }
     if(command==='save-d2-fill'){checkPermission(user,'freeze.number.write');
       const d=item.workflow.d2,task=item.workflow.tasks.find(t=>t.id===d.fillTaskId&&t.kind==='d2-fill');
-      ensure(d.unified&&task,'请先由质量工程师完成D2分派');ensure(user.role==='freeze-clerk'&&enabled(user)&&task.owner===user.id,'仅被分派的变更管理员可以填写冻结编号和数量',403);
+      ensure(d.unified&&task,'请先由质量工程师完成D2分派');ensure(d2Eligible(user)&&enabled(user)&&task.owner===user.id,'仅被分派的变更管理员可以填写冻结编号和数量',403);
       ensure(['draft','returned','accepted'].includes(task.status),'此填报当前不可修改');
       const data=body.data;cleanObject(data);ensure(Object.keys(data).every(k=>['freezeNumber','productionQty','shippedQty'].includes(k)),'填报字段无效');
       const next={...task.data};for(const key of ['productionQty','shippedQty'])if(Object.hasOwn(data,key)){const v=str(data[key]);ensure(v===''||/^\d+$/.test(v)&&Number.isSafeInteger(Number(v)), '数量须为非负整数（未知留空，无则填0）');next[key]=v===''?'':Number(v);}
@@ -292,8 +293,8 @@ export function createWorkflowService({store,fileRoot,onClosed=async()=>{},clock
       item.freezeAssignment.history||=[];item.freezeAssignment.history.push(stamp(user,body.submit?(correcting?'更正冻结编号与数量并完成，保留原提交记录':'提交冻结编号与数量并完成'):'保存冻结编号与数量草稿',now));invalidate(item,'D2');item.owner=originalOwner;
       return persist(item,user,body.submit?'变更管理员完成D2填报（免验收、不计分）':'保存D2填报草稿',body.version,C,W,now,{taskId:task.id});
     }
-    if(command==='assign-freeze-number'){ensure(!item.workflow.d2.unified,'请通过D2统一窗口调整分派');management();const owner=userBy(body.owner);ensure(owner?.role==='freeze-clerk'&&owner.enabled!==false,'请选择变更管理员');ensure(dateValid(body.due),'请选择冻结编号完成期限');item.freezeAssignment={owner:owner.id,due:body.due,status:'draft',history:[...(item.freezeAssignment?.history||[]),stamp(user,'分派冻结编号填写',now)]};addMember(item,owner.id,'填写冻结编号');item.owner=originalOwner;return persist(item,user,'分派冻结编号',body.version,C,W,now);}
-    if(command==='save-freeze-number'){ensure(!item.workflow.d2.unified,'请在D2统一窗口同时填写编号和数量');ensure(user.role==='freeze-clerk'&&item.freezeAssignment?.owner===user.id,'只能填写分派给自己的冻结编号',403);ensure(str(body.number)&&str(body.number).length<=100,'请填写有效冻结编号');item.workflow.d2.freezeNumber=str(body.number);item.freezeAssignment.status='completed';item.freezeAssignment.completedAt=now.toISOString();item.freezeAssignment.history.push(stamp(user,'提交冻结编号',now));item.owner=originalOwner;return persist(item,user,'提交冻结编号',body.version,C,W,now);}
+    if(command==='assign-freeze-number'){ensure(!item.workflow.d2.unified,'请通过D2统一窗口调整分派');management();const owner=userBy(body.owner);ensure(d2Eligible(owner)&&owner.enabled!==false,'请选择变更管理员');ensure(dateValid(body.due),'请选择冻结编号完成期限');item.freezeAssignment={owner:owner.id,due:body.due,status:'draft',history:[...(item.freezeAssignment?.history||[]),stamp(user,'分派冻结编号填写',now)]};addMember(item,owner.id,'填写冻结编号');item.owner=originalOwner;return persist(item,user,'分派冻结编号',body.version,C,W,now);}
+    if(command==='save-freeze-number'){ensure(!item.workflow.d2.unified,'请在D2统一窗口同时填写编号和数量');ensure(d2Eligible(user)&&item.freezeAssignment?.owner===user.id,'只能填写分派给自己的冻结编号',403);ensure(str(body.number)&&str(body.number).length<=100,'请填写有效冻结编号');item.workflow.d2.freezeNumber=str(body.number);item.freezeAssignment.status='completed';item.freezeAssignment.completedAt=now.toISOString();item.freezeAssignment.history.push(stamp(user,'提交冻结编号',now));item.owner=originalOwner;return persist(item,user,'提交冻结编号',body.version,C,W,now);}
     ensure(user.role!=='freeze-clerk'&&user.role!=='viewer','此账号无此写入权限',403);
     switch(command){
       case 'archive-analysis':management();ensure(str(body.reason),'请填写移除原因');item.archived=true;item.archivedAt=now.toISOString();item.archivedBy=user.id;item.archiveReason=str(body.reason);break;

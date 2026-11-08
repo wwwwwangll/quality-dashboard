@@ -2,9 +2,10 @@ import {hasPermission} from './auth.mjs';
 import {appError} from './store.mjs';
 export const isReader=u=>u?.role==='viewer';
 export const isFreeze=u=>u?.role==='freeze-clerk';
-export const globalView=u=>u?.role==='admin'||(!isFreeze(u)&&!isReader(u)&&(hasPermission(u,'analysis.manage')||u?.dept==='质量部'));
+export const globalView=u=>u?.groupId?hasPermission(u,'dashboard.view'):u?.role==='admin'||(!isFreeze(u)&&!isReader(u)&&(hasPermission(u,'analysis.manage')||u?.dept==='质量部'));
 const array=v=>Array.isArray(v)?v:typeof v==='string'?v.split(/[、,，;；]/).map(x=>x.trim()).filter(Boolean):[];
 export function scopedData(store,user){
+ if(user.groupId){const allow=p=>hasPermission(user,p);return {analyses:allow('analysis.view')?store.list('analyses').filter(a=>!a.archived):[],faults:allow('faults.view')?store.list('faults'):[],claims:allow('claims.view')?store.list('claims'):[],shipments:allow('dashboard.view')?store.list('shipments'):[],products:allow('dashboard.view')||allow('faults.view')?store.list('products'):[],global:allow('dashboard.view')};}
  const users=store.list('users'),analyses=store.list('analyses').filter(a=>!a.archived),faults=store.list('faults'),claims=store.list('claims');
  if(globalView(user))return {analyses,faults,claims,shipments:store.list('shipments'),products:store.list('products'),global:true};
  const departmentIds=new Set(users.filter(u=>u.dept&&u.dept===user.dept).map(u=>u.id));
@@ -23,7 +24,7 @@ export function requireRecord(store,user,kind,id){
  return store.get(kind,id);
 }
 export function canReadFile(store,user,id){
- if(globalView(user))return true;
+ if(user.groupId){if(!hasPermission(user,'files.view'))return false;}else if(globalView(user))return true;
  const file=store.get('files',id);if(file?.uploadedBy===user.id)return true;
  const v=scopedData(store,user),allowedFaults=new Set(v.faults.map(f=>f.id));
  const related=[...v.analyses.filter(a=>!isReader(user)||a.status==='closed'),...(!isReader(user)?[...v.faults,...v.claims]:[]),...store.list('preliminary').filter(p=>!isReader(user)&&allowedFaults.has(p.faultId)),...store.list('archive').filter(a=>v.analyses.some(i=>i.id===a.analysisId))];
