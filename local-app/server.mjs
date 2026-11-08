@@ -14,7 +14,10 @@ const isLoopback=value=>['127.0.0.1','::1','::ffff:127.0.0.1'].includes(value);
 const redact=value=>Array.isArray(value)?value.map(redact):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).map(([k,v])=>[/secret|password|webhook|token/i.test(k)?k:k,/secret|password|webhook|token/i.test(k)?(v?'[已配置]':''):redact(v)])):value;
 
 export async function startServer({dataDir,environment='test',port=0,host='127.0.0.1',testMode=false}={}){
- const [major,minor,patch]=process.versions.node.split('.').map(Number);if(major!==24||minor<22||minor===22&&patch<1)throw appError('请使用随包Node24.22.1或更高的24.x安全修复版启动',500);
+ const [major,minor,patch]=process.versions.node.split('.').map(Number);
+ // 随包运行时要求 24.22.1 以上；只有显式声明 QUALITY_ALLOW_NODE22=1（云托管环境）才放宽到 22.5 以上，node:sqlite 自 22.5 起可用
+ const nodeOk=process.env.QUALITY_ALLOW_NODE22==='1'?(major>22||major===22&&minor>=5):(major===24&&(minor>22||minor===22&&patch>=1));
+ if(!nodeOk)throw appError(process.env.QUALITY_ALLOW_NODE22==='1'?'请使用Node22.5以上或24.x启动':'请使用随包Node24.22.1或更高的24.x安全修复版启动',500);
  const store=createStore({dataDir,environment,testMode}),auth=createAuth(store),imports=createImportService({store}),app=express();
  const {createArchiveService}=await import('./lib/archive.mjs');
  const {createSystemService}=await import('./lib/system.mjs');
@@ -23,16 +26,20 @@ export async function startServer({dataDir,environment='test',port=0,host='127.0
  const wf=createWorkflowService({store,fileRoot:store.fileRoot,onClosed:async item=>archive.generate(item)});
  if(!testMode&&environment==='test'&&store.get('settings','preview-v4')&&!store.get('settings','accounts-v43')){const backup=await system.backup({id:'system',role:'admin',enabled:true},'accounts-v43-upgrade');if(backup.status!=='ready')throw appError('账号升级前备份未通过校验，已停止迁移',500);await migrateTestAccounts(store);fs.writeFileSync(path.join(here,'..','测试账号密码表.txt'),(await import('./lib/group-policy.mjs')).passwordTable(),'utf8');}
  const allowedHosts=new Set(['localhost','127.0.0.1','[::1]',...(process.env.QUALITY_ALLOWED_HOSTS||'').split(',').map(s=>s.trim().toLowerCase()).filter(Boolean)]);
+ // 云托管的反向代理会改写 Host，此时用 QUALITY_ALLOWED_HOSTS=* 放行主机名，来源校验改由域名白名单判断
+ const allowAnyHost=process.env.QUALITY_ALLOWED_HOSTS==='*';
+ const originRules=(process.env.QUALITY_ALLOWED_ORIGINS||'').split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);
+ const originAllowed=(origin,hostNow,hostForwarded)=>{let parsed;try{parsed=new URL(origin);}catch{return false;}const host=parsed.host.toLowerCase(),hostname=parsed.hostname.toLowerCase();if(host===hostNow||host===hostForwarded)return true;if(originRules.includes('*')||originRules.includes(parsed.origin.toLowerCase()))return true;return originRules.some(rule=>rule.startsWith('.')&&(hostname===rule.slice(1)||hostname.endsWith(rule)));};
  app.disable('x-powered-by');
  app.set('case sensitive routing',true);
- if(process.env.QUALITY_TRUST_PROXY==='loopback')app.set('trust proxy','loopback');
+ if(process.env.QUALITY_TRUST_PROXY)app.set('trust proxy',process.env.QUALITY_TRUST_PROXY==='loopback'?'loopback':true);
  app.use((req,res,next)=>{
    res.set({'X-Content-Type-Options':'nosniff','X-Frame-Options':'SAMEORIGIN','Referrer-Policy':'same-origin','Cache-Control':'no-store','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'"});
    let requestHost;try{const supplied=req.get('host')||'';if(!/^[\w.\-:[\]]+$/.test(supplied))throw Error();requestHost=new URL('http://'+supplied).hostname.toLowerCase();}catch{return res.status(400).json({error:'主机名无效'});}
-   if(!allowedHosts.has(requestHost))return res.status(421).json({error:'此主机名尚未获准访问，请由IT配置QUALITY_ALLOWED_HOSTS'});
+   if(!allowAnyHost&&!allowedHosts.has(requestHost))return res.status(421).json({error:'此主机名尚未获准访问，请由IT配置QUALITY_ALLOWED_HOSTS'});
    if(req.path.startsWith('/api/')){
      if(req.headers['x-quality-test']==='true'&&environment!=='test')return res.status(403).json({error:'自动测试禁止访问正式环境'});
-     const origin=req.get('origin');if(origin&&origin!==`${req.protocol}://${req.get('host')}`)return res.status(403).json({error:'禁止跨站请求'});
+     const origin=req.get('origin');if(origin){const hostNow=String(req.get('host')||'').toLowerCase(),hostForwarded=String(req.get('x-forwarded-host')||'').split(',')[0].trim().toLowerCase();if(!originAllowed(origin,hostNow,hostForwarded))return res.status(403).json({error:'禁止跨站请求'});}
    }next();
  });
  app.use('/api/files',express.raw({type:()=>true,limit:'10mb'}));
@@ -117,7 +124,9 @@ export async function startServer({dataDir,environment='test',port=0,host='127.0
  app.get('/api/users/export.csv',(req,res)=>{requirePermission(req.user,'users.manage');const cell=v=>'"'+String(v??'').replace(/^[\s\x00-\x1f]*(?=[=+@-])/ ,"'").replaceAll('"','""')+'"';const rows=[['账号','姓名','部门','角色','当前状态'],...store.list('users').map(u=>[u.username,u.name,u.dept,u.role,u.archived?'已归档':u.enabled===false?'已停用':'启用'])];res.type('text/csv; charset=utf-8').set('Content-Disposition',"attachment; filename=account-status.csv").send('\uFEFF'+rows.map(r=>r.map(cell).join(',')).join('\r\n'));});
  app.use('/api',(req,res)=>res.status(404).json({error:'接口不存在'}));
  const allowedLegacy=new Set(['analysis-core.js','analysis-workflow.js','analysis-workflow-ui.js','analysis-dialogs.js','analysis.css','analysis-workflow.css','style.css','guide.html']);
- app.get('/legacy/:name',(req,res)=>{if(!allowedLegacy.has(req.params.name))return res.sendStatus(404);res.sendFile(path.join(here,'..','dist',req.params.name));});
+ // 云托管上传会排除名为 dist 的构建产物目录，发布时改用 engine；两种布局都要能找到共享8D引擎
+ const sharedEngineDir=(()=>{for(const name of ['dist','engine']){const candidate=path.join(here,'..',name);if(fs.existsSync(path.join(candidate,'analysis-core.js')))return candidate;}return path.join(here,'..','dist');})();
+ app.get('/legacy/:name',(req,res)=>{if(!allowedLegacy.has(req.params.name))return res.sendStatus(404);res.sendFile(path.join(sharedEngineDir,req.params.name));});
  app.use(express.static(path.join(here,'public'),{dotfiles:'deny',index:'index.html',etag:false}));
  app.use((err,req,res,next)=>{if(res.headersSent)return next(err);const status=err.status||err.statusCode||500;res.status(status).json({error:status>=500?'服务处理失败，请查看本机日志并重试':err.message,details:err.details});if(status>=500)console.error('[quality-server]',err.stack);});
  const server=await new Promise((resolve,reject)=>{const s=app.listen(port,host,()=>resolve(s));s.once('error',reject)});if(!testMode)system.start?.();archive.resume?.().catch(e=>console.error('[archive-resume]',e.message));

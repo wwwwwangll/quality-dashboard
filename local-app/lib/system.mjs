@@ -1,7 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {createHash,randomUUID} from 'node:crypto';
-import {DatabaseSync,backup as sqliteBackup} from 'node:sqlite';
+import {DatabaseSync} from 'node:sqlite';
+// node:sqlite 的 backup 导出自 Node 22.16 起提供；较旧的 22.x 只能退化为 WAL 合并后复制文件
+let sqliteBackup=null;try{sqliteBackup=(await import('node:sqlite')).backup||null;}catch{sqliteBackup=null;}
 import {appError} from './store.mjs';
 import {createWorkflowService} from './workflow.mjs';
 const digest=bytes=>createHash('sha256').update(bytes).digest('hex');
@@ -14,10 +16,15 @@ export function createSystemService({store,fileRoot=store.fileRoot}){
  function settings(){const s=store.get('settings','system')||{};return {...s,notifications:{mode:'mock',enabled:false,dueSoonHours:24,overdueHour:10,groups:[],...(s.notifications||{}),mode:'mock'},backup:{retentionDays:30,...s.backup}};}
  function assertAdmin(user){if(user?.role!=='admin')throw appError('仅管理员可以执行系统操作',403);}
  function rootBackup(){const configured=settings().backup?.target;return configured?path.resolve(configured):path.join(store.dataDir,'backups');}
+ async function backupDatabase(target){
+  if(typeof sqliteBackup==='function'&&process.env.QUALITY_FORCE_BACKUP_FALLBACK!=='1')return sqliteBackup(store.db,target);
+  store.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+  fs.copyFileSync(path.join(store.dataDir,'quality.sqlite'),target);
+ }
  async function backup(user={id:'system'},reason='每日备份'){
   if(backing)return backing;
   backing=(async()=>{const root=rootBackup();fs.mkdirSync(root,{recursive:true});const id=day()+'-'+Date.now()+'-'+randomUUID().slice(0,8),target=path.join(root,id);fs.mkdirSync(target);
-   try{await sqliteBackup(store.db,path.join(target,'quality.sqlite'));const entries=[];
+   try{await backupDatabase(path.join(target,'quality.sqlite'));const entries=[];
     for(const source of walk(fileRoot)){const relative=path.relative(fileRoot,source),dest=path.join(target,'attachments',relative);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(source,dest);entries.push({path:path.join('attachments',relative).replaceAll('\\','/'),size:fs.statSync(dest).size,sha256:digest(fs.readFileSync(dest))});}
     const dbfile=path.join(target,'quality.sqlite');entries.unshift({path:'quality.sqlite',size:fs.statSync(dbfile).size,sha256:digest(fs.readFileSync(dbfile))});const checkDb=new DatabaseSync(dbfile,{readOnly:true});let counts;try{counts=checkDb.prepare('SELECT kind,count(*) count FROM records GROUP BY kind').all();}finally{checkDb.close();}
     const manifest={format:'quality-backup-v1',id,environment:store.environment,createdAt:new Date().toISOString(),reason,counts,entries};fs.writeFileSync(path.join(target,'manifest.json'),JSON.stringify(manifest,null,2));

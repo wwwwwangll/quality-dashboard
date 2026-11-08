@@ -8,7 +8,8 @@ import {d2Eligible} from './group-policy.mjs';
 import {gridCommand} from './grid-service.mjs';
 import {scopedData,requireRecord,globalView,canReadFile} from './access.mjs';
 
-const DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../dist');
+// 共享8D引擎目录：本地为 dist；云托管上传会排除 dist，发布包内改名为 engine
+const DIST = ['dist','engine'].map(name=>path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../../'+name)).find(dir=>fs.existsSync(path.join(dir,'analysis-core.js')))||path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../../dist');
 const coreSource = fs.readFileSync(path.join(DIST, 'analysis-core.js'), 'utf8');
 let workflowSource = fs.readFileSync(path.join(DIST, 'analysis-workflow.js'), 'utf8').replaceAll('\r\n','\n');
 // Keep the tested engine. The local service, rather than a caller-supplied person ID,
