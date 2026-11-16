@@ -19,7 +19,10 @@ export function createStore({dataDir,environment='test',testMode=false}) {
   }else fs.writeFileSync(marker,JSON.stringify({application:'quality-dashboard-local',environment,createdAt:new Date().toISOString()},null,2),{flag:'wx'});
   const fileRoot=path.join(dataDir,'attachments');for(const d of ['attachments','pdfs','backups'])fs.mkdirSync(path.join(dataDir,d),{recursive:true});
   const db=new DatabaseSync(path.join(dataDir,'quality.sqlite'));
-  db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS records(kind TEXT NOT NULL,id TEXT NOT NULL,data TEXT NOT NULL,version INTEGER NOT NULL DEFAULT 1,updated_at TEXT NOT NULL,PRIMARY KEY(kind,id)); CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY,user_id TEXT NOT NULL,csrf TEXT NOT NULL,expires_at INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY AUTOINCREMENT,at TEXT NOT NULL,actor TEXT NOT NULL,event TEXT NOT NULL,details TEXT NOT NULL);');
+  // 云托管的快照/恢复可能只带走主库文件而留下上一次的 -wal，导致索引与数据不一致。
+  // 托管入口用 QUALITY_SQLITE_JOURNAL=delete 关掉 WAL，让每次提交都落在主库文件里；本机默认仍是 WAL。
+  const journal=String(process.env.QUALITY_SQLITE_JOURNAL||'WAL').toLowerCase()==='delete'?'DELETE':'WAL';
+  db.exec('PRAGMA journal_mode='+journal+'; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS records(kind TEXT NOT NULL,id TEXT NOT NULL,data TEXT NOT NULL,version INTEGER NOT NULL DEFAULT 1,updated_at TEXT NOT NULL,PRIMARY KEY(kind,id)); CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY,user_id TEXT NOT NULL,csrf TEXT NOT NULL,expires_at INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY AUTOINCREMENT,at TEXT NOT NULL,actor TEXT NOT NULL,event TEXT NOT NULL,details TEXT NOT NULL);');
   const select=db.prepare('SELECT id,data,version FROM records WHERE kind=? AND id=?'),listStmt=db.prepare('SELECT id,data,version FROM records WHERE kind=? ORDER BY rowid');
   const unpack=r=>r?{...JSON.parse(r.data),id:r.id,version:r.version}:null;
   const hydrate=(kind,u)=>{if(u&&kind==='users'&&u.groupId)Object.defineProperty(u,'_group',{value:unpack(select.get('groups',u.groupId)),enumerable:false});return u;};
