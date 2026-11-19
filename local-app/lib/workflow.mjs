@@ -199,9 +199,16 @@ export function createWorkflowService({store,fileRoot,onClosed=async()=>{},clock
     return tasks;
   }
   function metrics(body,W,now) {
-    const range=periodRange(body.period||'month',body.date||dateStamp(now),now),cutoff=Date.parse(range.cutoff),start=Date.parse(range.start+'T00:00:00+08:00');
-    const all=metricTasks(W).filter(t=>Number.isFinite(dueInstant(t.due))&&dueInstant(t.due)<=cutoff),window=all.filter(t=>dueInstant(t.due)>=start);
-    const departments=[...new Set([...allUsers().map(u=>u.dept||'未设置部门'),...all.map(t=>t.department)])].map(department=>{
+    let range;
+    if(body.from!==undefined||body.to!==undefined){
+      ensure(typeof body.from==='string'&&typeof body.to==='string'&&dateValid(body.from)&&dateValid(body.to)&&body.from<=body.to,'请选择有效的起止日期');
+      range={period:'custom',start:body.from,end:body.to,cutoff:new Date(Math.min(dueInstant(body.to),+now)).toISOString()};
+    }else range=periodRange(body.period||'month',body.date||dateStamp(now),now);
+    const department=str(body.department);
+    ensure(department.length<=100,'部门名称过长');
+    const cutoff=Date.parse(range.cutoff),start=Date.parse(range.start+'T00:00:00+08:00');
+    const all=metricTasks(W).filter(t=>Number.isFinite(dueInstant(t.due))&&dueInstant(t.due)<=cutoff&&(!department||t.department===department)),window=all.filter(t=>dueInstant(t.due)>=start);
+    const departments=[...new Set([...allUsers().map(u=>u.dept||'未设置部门'),...all.map(t=>t.department)])].filter(name=>!department||name===department).map(department=>{
       const tasks=window.filter(t=>t.department===department),onTime=tasks.filter(t=>t.completed&&Date.parse(t.completedAt)<=dueInstant(t.due)).length,lateCompleted=tasks.filter(t=>t.completed&&Date.parse(t.completedAt)>dueInstant(t.due)).length,pendingReview=tasks.filter(t=>!t.completed&&t.awaitingReview).length,overdueOpen=tasks.filter(t=>!t.completed&&!t.awaitingReview).length,backlog=all.filter(t=>t.department===department&&dueInstant(t.due)<start&&!t.completed).length;
       return {department,total:tasks.length,onTime,lateCompleted,pendingReview,overdueOpen,backlog,rate:tasks.length?Math.round(onTime/tasks.length*10000)/100:null,tasks};
     });return {...range,departments,tasks:window,backlog:all.filter(t=>dueInstant(t.due)<start&&!t.completed)};

@@ -7,8 +7,8 @@ import {fileURLToPath} from 'node:url';
 const app=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const read=p=>fs.readFileSync(path.join(app,p),'utf8');
 test('未来月份标注未到，不作为本年零报故；历史月份仍显示实际0',()=>{
- const ctx=vm.createContext({window:{}});vm.runInContext(read('public/local-analytics.js'),ctx);ctx.window.LocalAnalytics=ctx.window.LocalAnalytics;
- vm.runInContext(read('public/dashboard-v4.js'),ctx);const b=ctx.window.BoardV4.state('2026-11-01');b.modules=['trend'];
+ const ctx=vm.createContext({window:{},document:{addEventListener(){}}});vm.runInContext(read('public/local-analytics.js'),ctx);ctx.window.LocalAnalytics=ctx.window.LocalAnalytics;
+ vm.runInContext(read('public/ui-charts.js'),ctx);vm.runInContext(read('public/ui-dashboard.js'),ctx);vm.runInContext(read('public/dashboard-v4.js'),ctx);const b=ctx.window.BoardV4.state('2026-11-01');b.modules=['trend'];
  const html=ctx.window.BoardV4.render({faults:[],claims:[],products:[],shipments:[]},b,{rows:[]});
  assert.match(html,/2026-12 尚未到达，本年未统计/);assert.doesNotMatch(html,/2026-12 本年0件/);assert.match(html,/2026-01 本年0件/);
 });

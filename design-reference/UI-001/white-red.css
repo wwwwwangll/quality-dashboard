@@ -1,0 +1,109 @@
+:root { color-scheme:light; --bg:#f6f5f2; --panel:#fff; --border:#e2dfd7; --muted:#6d6a63; --text:#302e29; --cyan:#665e50; --red:#94712d; --purple:#647a96; }
+.review-ui {
+  --review-bg:#f6f5f2;
+  --review-surface:#fff;
+  --review-raised:#f2f1ed;
+  --review-line:#e2dfd7;
+  --review-text:#302e29;
+  --review-muted:#6d6a63;
+  --review-accent:#665e50;
+}
+.review-ui .review-masthead { background:#fff; border-top:3px solid #665e50; }
+.review-ui .review-masthead strong { color:#565046; }
+.review-ui .review-subnav { background:#fff; }
+.review-ui :is(.review-nav,.review-subnav) button:hover { background:#f1efe9; }
+.review-ui :is(.review-nav,.review-subnav) button[aria-current] { font-weight:600; }
+.review-ui .review-board-tabs button { background:#fff; }
+.review-ui .review-board-tabs button[aria-pressed="true"] { background:#f1efe9; }
+.review-ui :is(input,select,textarea) { background:#fff; color:#302e29; border-color:#b6b1a6; }
+.review-ui :is(input,textarea)::placeholder { color:#717b89; }
+.review-ui :is(input,select,textarea):hover { border-color:#665e50; }
+.review-ui .work-btn { background:#fff; color:#4c4942; border-color:#b6b1a6; }
+.review-ui .work-btn:hover:not(:disabled) { background:#f1efe9; border-color:#665e50; color:#565046; }
+.review-ui .work-btn.accent { background:#665e50; border-color:#665e50; color:#fff; }
+.review-ui .work-btn.accent:hover:not(:disabled) { background:#514a3f; border-color:#514a3f; color:#fff; }
+.review-ui .text-btn,.review-ui a { color:#565046; }
+.review-ui .review-profile .local-profile { background:#fff; box-shadow:0 6px 18px #23304412; }
+.review-ui .panel,.review-ui .v4-chart { box-shadow:0 1px 2px #23304404; }
+.review-ui .table-wrap thead th { background:#f1efea; color:#57534a; }
+.review-ui .table-wrap tbody tr:hover>td { background:#f5f3ee; }
+.review-ui table td,.review-ui table th { color:#4c4942; }
+.review-ui .tag,.review-ui .env { background:#f1efe9; color:#565046; }
+.review-ui .tag.good { background:#edf5f0; color:#2b654b; }
+.review-ui .tag.danger { background:#fbf5e8; color:#87641e; }
+.review-ui .error,.review-ui .danger-text { color:#87641e; }
+.review-ui .help,.review-ui small,.review-ui label { color:#6d6a63; }
+.review-ui .review-finance-summary .kpi:nth-child(1) b { color:#696f5d; }
+.review-ui .review-finance-summary .kpi:nth-child(2) b { color:#665e50; }
+.review-ui .review-finance-summary .kpi:nth-child(3) b { color:#326a58; }
+.review-ui .review-finance-summary .kpi:nth-child(4) b { color:#896232; }
+.review-ui .review-chart-legend i { background:#7e8a76; }
+.review-ui .review-chart-legend .previous { background:#ad956c; }
+.review-ui .v4-chart svg text { fill:#6d6a63; }
+.review-ui .v4-bar-row { color:#555047; }
+.review-ui .v4-bar-row:hover { background:#f1efe9; }
+.review-ui .v4-bar-row>i { background:#eceef2; }
+.review-ui .v4-bar-row em { background:#665e50; }
+.review-ui .v4-bar-row b { color:#302e29; }
+.review-ui .bar { background:#eceef2; }
+.review-ui .bar i { background:#665e50; }
+.review-ui .modal,.review-ui .analysis-main { background:#f6f5f2; color:#302e29; }
+.review-ui .modal-head,.review-ui .modal-foot { background:#fff; border-color:#e2dfd7; }
+.review-ui .modal-head small { color:#6d6a63; }
+.review-ui .analysis-nav { background:#fff; border-color:#e2dfd7; }
+.review-ui .analysis-nav button { color:#6d6a63; }
+.review-ui .analysis-nav button.selected { background:#f1efe9; color:#665e50; }
+.review-ui .source-info { background:#fff; border-color:#e2dfd7; }
+.review-ui .prelim { background:#fff; border-color:#665e50; }
+.review-ui :is(.pill-tabs button,.v4-grid-card,.v4-note,.v4-row,.v4-draft,.v4-review,.wf-task,.wf-card,.wf-section,.wf-root,.wf-grid,.v4-source,.v4-audit) { background:#fff; color:#302e29; border-color:#e2dfd7; }
+.review-ui .pill-tabs button.active { background:#f1efe9; border-color:#665e50; color:#665e50; }
+.review-ui .analysis-main .wf-task,.review-ui .modal .wf-task { background:#fff; }
+.review-ui .review-photo-dialog { background:#fff; color:#302e29; }
+.review-ui .review-donut-legend button { color:#302e29; }
+.review-ui .review-donut-legend button:hover { background:#f4f2ed; }
+.review-ui input[type="checkbox"],.review-ui input[type="radio"] { accent-color:#665e50; }
+.review-ui #toast { background:#fff; color:#302e29; border:1px solid #e2dfd7; box-shadow:0 6px 22px #2330441a; }
+.review-ui :is(.guide-panel,.follow-stage-card,.tutorial-card,.v4-task-readonly,.wf-check,.v4-import-actions) { background:#fff; color:#302e29; border-color:#e2dfd7; box-shadow:none; }
+.review-ui .guide-panel p,.review-ui .tutorial-card p,.review-ui .tutorial-card small { color:#6d6a63; }
+.review-ui :is(.guide-actions button,.tutorial-restart,.v4-path button) { color:#565046; }
+.review-ui .v4-path button,.review-ui .guide-steps span { background:#f1efea; border-color:#e2dfd7; color:#6d6a63; }
+.review-ui .guide-steps .current { background:#665e50; color:#fff; }
+.review-ui .guide-steps .done { color:#326a58; }
+.review-ui .row-button { background:#f5f4f0; color:#302e29; border-color:#e2dfd7; }
+.review-ui .row-button:hover { background:#f1efe9; }
+.review-ui .row-button small,.review-ui .row-button .right { color:#6d6a63; }
+.review-ui .v4-grid-card:hover { background:#f1efe9; border-color:#665e50; }
+.review-ui .wf-check:has(input:checked) { background:#f1efe9; color:#565046; border-color:#665e50; }
+.review-ui .grid-simple select { background:#fff; color:#302e29; border-color:#b6b1a6; }
+.review-ui .grid-success { background:#edf5f0; color:#2b654b; border-color:#a8cbbb; }
+.review-ui .v4-review.returned { background:#fbf5e8; border-color:#d6bd83; }
+.review-ui .guide-wait h3 { color:#896232; }
+
+.review-ui .review-masthead { border-top-color:#a62835; }
+.review-ui .review-masthead strong { color:#8e2330; }
+.review-ui .review-nav button[aria-current] { color:#a62835; border-bottom-color:#a62835; }
+.review-ui .review-nav button:hover { background:#faf0f1; }
+.review-ui .kpi b,.review-ui .v4-kpis .kpi:nth-child(1) b,.review-ui .v4-kpis .kpi:nth-child(7) b { color:#302e29; }
+
+/* Chart colors express the same meaning across dashboards. */
+.review-ui .v4-chart .review-chart-legend i { background:#7462bc; }
+.review-ui .v4-chart .review-chart-legend .previous { background:#d39b45; }
+.review-ui .v4-chart .review-amount-legend i { background:#389b83; }
+.review-ui .v4-bar-row>i { height:8px; background:#f0eef5; }
+.review-ui .v4-bar-row em { background:#8c7bc4; }
+.review-ui .v4-bar-row[data-field="customer"]>i { background:#eaf5f1; }
+.review-ui .v4-bar-row[data-field="customer"] em { background:#52a68f; }
+.review-ui .v4-bar-row[data-kind="claim"]>i { background:#f0edf8; }
+.review-ui .v4-bar-row[data-kind="claim"] em { background:#8c7bc4; }
+.review-ui .v4-bar-row[data-kind="major"]>i { background:#faf2e6; }
+.review-ui .v4-bar-row[data-kind="major"] em { background:#d4a054; }
+.review-ui .v4-bar-row { padding-block:12px; }
+.review-ui .v4-bar-row:hover { background:#f7f6fb; }
+.review-ui .v4-bar-row b { color:#34313c; font-weight:600; }
+.review-ui .v4-chart .v4-card-heading { align-items:flex-start; gap:12px; }
+.review-ui .review-chart-legend { gap:22px; }
+.review-ui .review-donut-legend button { padding-block:8px; }
+.review-ui .review-finance-summary .kpi:nth-child(1) b { color:#7462bc; }
+.review-ui .review-finance-summary .kpi:nth-child(2) b { color:#9b7130; }
+.review-ui .review-finance-summary .kpi:nth-child(3) b { color:#297c65; }
+.review-ui .review-finance-summary .kpi:nth-child(4) b { color:#62676e; }

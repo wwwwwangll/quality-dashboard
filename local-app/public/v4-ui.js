@@ -54,7 +54,36 @@ if(a==='task-assign'||a==='task-submit'||a==='task-draft')return saveTask(a==='t
 if(a==='task-accept'||a==='task-return'){const t=S.analysis.workflow.tasks.find(t=>t.id===f.taskId),reason=$('[name="reviewReason"]').value;if(!reason.trim())throw Error('请填写验收说明或退回原因');await command(a==='task-accept'?'accept-task':'return-task',{taskId:t.id,reason,initiative:Number($('[name="initiative"]').value),evidenceScore:Number($('[name="evidenceScore"]').value),ratingReason:reason});await finishSave('验收处理已保存');return;}
 if(a==='remove-file'||a==='remove-link'){if(!f)throw Error('请重新打开任务');if(f.type==='v4-node')f.capture();if(f.type==='v4-task')f.draft=readTask();if(f.type==='v4-evidence')f.required=$('#v4StageEvidence').checked;const entries=a==='remove-file'?f.files:f.links,index=Number(el.dataset.index);if(!Number.isInteger(index)||index<0||index>=entries.length)throw Error('资料不存在');entries.splice(index,1);renderDialogs();toast('已从本次填写中移除，保存或提交后生效；历史资料保留');return;}
 if(a==='add-link'){if(f.type==='v4-evidence')f.required=$('#v4StageEvidence').checked;const name=$('[data-v4-link-name]').value.trim(),url=$('[data-v4-link-url]').value.trim();if(!name||!/^https?:\/\//.test(url))throw Error('请填写证据名称及有效网址');if(f.type==='v4-node')f.draft=readNode();if(f.type==='v4-task')f.draft=readTask();f.links.push({name,url});renderDialogs();return;}
-if(a==='board-reset-dates'){const defaults=root.BoardV4.state(S.board.today);Object.assign(S.board,{period:defaults.period,year:defaults.year,from:defaults.from,to:defaults.to});render();return;}
+if(a==='board-mode'){
+      const mode=el.dataset.mode;
+      if(mode===S.board.mode)return;
+      S.reviewBoards ||= {};
+      S.reviewBoards[S.board.mode]=S.board;
+      S.board=S.reviewBoards[mode]||root.QualityDashboard.newBoard(root.BoardV4,S.board.today,mode);
+      render();document.querySelector('[data-mode="'+mode+'"]')?.focus({preventScroll:true});return;
+    }
+    if(a==='board-reset'){
+      S.board=root.QualityDashboard.newBoard(root.BoardV4,S.board.today,S.board.mode);
+      render();document.querySelector('[data-v4="board-reset"]')?.focus({preventScroll:true});return;
+    }
+    if(a==='board-apply-dates'){
+      const from=document.querySelector('[data-board="from"]'),to=document.querySelector('[data-board="to"]');
+      if(!from?.value||!to?.value||!from.validity.valid||!to.validity.valid||from.value>to.value){
+        toast('请选择有效日期，结束日期不能早于开始日期');return;
+      }
+      const amounts=root.QualityDashboard.readAmounts();
+      if(amounts===null)return;
+      S.board.amountRanges=amounts;
+      delete S.board.amountDraft;
+      for(const field of document.querySelectorAll('.v4-board-dimensions select[data-board]')) S.board[field.dataset.board]=field.value;
+      delete S.board.dimensionDraft;
+      const range=root.LocalAnalytics.range(S.board);
+      delete S.board.dateDraft;
+      if(from.value!==range.start||to.value!==range.end)Object.assign(S.board,{period:'custom',from:from.value,to:to.value});
+      render();
+      document.querySelector('[data-v4="board-apply-dates"]')?.focus({preventScroll:true});
+      return;
+    }
 if(a==='board-detail'){if(S.user.role==='viewer'){toast('查看账号可查看汇总图表及已关闭8D报告，原始单据由质量部管理');return;}const {faults,claims}=root.BoardV4.filtered(S.data,S.board),kind=el.dataset.kind,field=el.dataset.field,key=el.dataset.value;let rows=(kind==='claim'?claims:faults).filter(r=>kind==='major'?['是','true','1'].includes(String(r.major)):field==='month'?r.date.startsWith(key):r[field]===key||key==='未填写'&&!r[field]);pushForm({type:'v4-detail',title:'统计明细 · '+key,html:'<p>共 '+rows.length+' 条</p>'+rows.map(r=>'<button class="row-button" '+(kind==='claim'?'data-open-claim':'data-open-fault')+'="'+E(r.id)+'"><strong>'+E(r.id)+' · '+E(r.product)+'</strong><small>'+E(r.customer)+' · '+E(r.description||r.issue)+'</small></button>').join('')});return;}
 if(a==='queue'){if(el.dataset.analysis){await openAnalysis(el.dataset.analysis,el.dataset.stage,el.dataset.task);}else if(el.dataset.fault)ctx.faultView(el.dataset.fault);return;}
 if(a==='archive-user'){if(!confirm('停用并从常用列表移除此账号？原任务与历史记录保留。'))return;const u=S.data.users.find(u=>u.id===el.dataset.user);await api('/api/users/'+encodeURIComponent(u.id),{version:u.version},'DELETE');await refresh();toast('账号已移除，历史保留');return;}
@@ -64,7 +93,14 @@ if(a==='freeze-number'){await openAnalysis(el.dataset.analysis,'D2');return d2.o
 }
 document.addEventListener('click',ev=>{const el=ev.target.closest('[data-v4]');if(!el)return;ev.preventDefault();ev.stopImmediatePropagation();run(()=>click(el));},true);
 document.addEventListener('input',()=>validate());
-document.addEventListener('change',ev=>{const el=ev.target;if(el.dataset.board){const k=el.dataset.board;if(k==='from'||k==='to'){const range=root.LocalAnalytics.range(S.board);if(!el.value||!el.validity.valid||!/^\d{4}-\d{2}-\d{2}$/.test(el.value)){el.value=k==='from'?range.start:range.end;toast('请选择有效日期，结束日期不能早于开始日期');return;}Object.assign(S.board,{period:'custom',from:range.start,to:range.end,[k]:el.value});}else S.board[k]=el.value;render();return;}if(el.dataset.module){S.board.modules=[...document.querySelectorAll('[data-module]:checked')].map(e=>e.dataset.module);localStorage.setItem('quality-board-'+S.user.id,JSON.stringify(S.board.modules));render();return;}if(el.hasAttribute('data-v4-upload')){const f=S.forms.at(-1);if(f.type==='v4-node')f.draft=readNode();if(f.type==='v4-task')f.draft=readTask();if(f.type==='v4-evidence')f.required=$('#v4StageEvidence').checked;run(async()=>{for(const file of el.files)f.files.push(await uploadFile(file));renderDialogs();});return;}if(el.name==='team-person'&&$('#teamAutoRole'))$('#teamAutoRole').textContent=G.duties[person(el.value).dept]||'负责已分派的分析与执行任务';if(el.name==='evidenceRequired'&&$('#v4Task')){const f=S.forms.at(-1);f.draft=readTask();}validate();});
+document.addEventListener('change',ev=>{const el=ev.target;if(el.dataset.reviewAmount){S.board.amountDraft=root.QualityDashboard.currentAmounts();return;}if(el.dataset.board){const k=el.dataset.board;if(k==='from'||k==='to'){
+      S.board.dateDraft ||= {};
+      S.board.dateDraft[k]=el.value;
+      return;
+    }
+    S.board.dimensionDraft ||= {};
+    S.board.dimensionDraft[k]=el.value;
+    return;render();return;}if(el.dataset.module){S.board.modules=[...document.querySelectorAll('[data-module]:checked')].map(e=>e.dataset.module);render();return;}if(el.hasAttribute('data-v4-upload')){const f=S.forms.at(-1);if(f.type==='v4-node')f.draft=readNode();if(f.type==='v4-task')f.draft=readTask();if(f.type==='v4-evidence')f.required=$('#v4StageEvidence').checked;run(async()=>{for(const file of el.files)f.files.push(await uploadFile(file));renderDialogs();});return;}if(el.name==='team-person'&&$('#teamAutoRole'))$('#teamAutoRole').textContent=G.duties[person(el.value).dept]||'负责已分派的分析与执行任务';if(el.name==='evidenceRequired'&&$('#v4Task')){const f=S.forms.at(-1);f.draft=readTask();}validate();});
 function afterRender(){d2.validate();root.RequiredFields?.annotate(S);validate();const finish=$('[data-action="finish-stage"]');if(finish){const errors=root.AnalysisCore.validateStage(S.analysis,S.stage);finish.disabled=Array.isArray(errors)?errors.length>0:!!errors;finish.title=Array.isArray(errors)?errors.join('；'):String(errors||'');}for(const input of document.querySelectorAll('input[type="password"]')){if(input.nextElementSibling?.classList.contains('v4-password-toggle'))continue;const button=document.createElement('button');button.type='button';button.className='work-btn compact v4-password-toggle';button.textContent='显示密码';button.onclick=()=>{input.type=input.type==='password'?'text':'password';button.textContent=input.type==='password'?'显示密码':'隐藏密码';};input.after(button);}if(S.route==='users'){if(!document.querySelector('[data-account-status-export]')){const link=document.createElement('a');link.className='work-btn';link.dataset.accountStatusExport='true';link.href='/api/users/export.csv';link.textContent='下载当前账号清单';link.download='当前账号状态.csv';document.querySelector('[data-user-edit="new"]')?.before(link);}for(const button of document.querySelectorAll('[data-user-edit]')){const u=S.data.users.find(u=>u.id===button.dataset.userEdit);if(!u||button.parentElement.querySelector('[data-v4="archive-user"]'))continue;const b=document.createElement('button');b.className='work-btn compact danger';b.dataset.v4='archive-user';b.dataset.user=u.id;b.textContent='删除账号';button.parentElement.append(b);}}}
 return {stageHTML,openTask,openD2:d2.open,assign,openNode,openGrid,evidence:()=>click({dataset:{v4:'stage-evidence'}}),afterRender,nextStep,teamEditor(id){const m=S.analysis.team.find(m=>m.personId===id);pushForm({type:'v4-team',title:'选择团队成员 · 自动带入职责',html:'<form id="v4Team"><label>成员<select name="team-person" '+(m?'disabled':'')+'>'+userOpts(m?.personId)+'</select></label></form><p class="v4-note" id="teamAutoRole">'+E(G.duties[person(m?.personId).dept]||'选择人员后自动带入部门职责')+'</p>',save:async()=>{const personId=m?.personId||$('#v4Team').elements['team-person'].value;if(!personId)throw Error('请选择人员');const team=G.copy(S.analysis.team),old=team.find(m=>m.personId===personId),role=G.duties[person(personId).dept]||'负责本次分派的分析与执行任务';if(old)Object.assign(old,{role,inactive:false});else team.push({personId,role});await command('patch-stage',{stage:'D1',team});await finishSave('团队成员已加入，职责自动带入');}});}};
 };

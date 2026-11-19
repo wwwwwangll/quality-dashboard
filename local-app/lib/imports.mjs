@@ -4,14 +4,37 @@ import path from 'node:path';
 import {randomUUID,createHash} from 'node:crypto';
 import {appError} from './store.mjs';
 import {requirePermission} from './auth.mjs';
+import {canReadFile} from './access.mjs';
 
 const definitions={
  fault:{kind:'faults',fields:{id:['报故单号','报故编号','单据编号','故障单号'],date:['报故日期','填报日期','日期'],product:['产品名称','产品'],model:['产品型号','型号'],material:['料号','物料编码','物料号'],customer:['客户名称','客户'],project:['项目名称','项目'],reporter:['报故人员','报故人','填报人'],description:['故障信息','故障描述','问题描述','故障现象'],condition:['发生地点与工况','工况','发生地点'],quantity:['报故数量','数量','故障数量']},required:['id','date','product','description']},
- claim:{kind:'claims',fields:{id:['索赔编号','索赔单号','客诉编号','单据编号'],date:['索赔日期','填表日期','日期'],product:['产品名称','产品'],model:['产品型号','型号'],material:['料号','物料编码','物料号'],customer:['客户名称','客户'],issue:['索赔原因','故障信息','问题描述','故障描述'],amount:['索赔金额','投诉金额','金额'],waiver:['减免金额','协商减免'],actual:['实际赔付','实际赔付金额','赔付金额'],faultId:['报故单号','报故编号','关联报故单号'],dept:['责任部门','主责部门'],deadline:['截止日期','完成期限'],status:['处理状态','状态'],currency:['币种','货币']},required:['id','date','customer','amount']}
+ claim:{kind:'claims',fields:{id:['索赔编号','索赔单号','客诉编号','单据编号'],date:['索赔日期','填表日期','日期'],product:['产品名称','产品'],model:['产品型号','型号'],material:['料号','物料编码','物料号'],customer:['客户名称','客户'],issue:['索赔原因','故障信息','问题描述','故障描述'],amount:['索赔金额','投诉金额','金额'],waiver:['减免金额','协商减免'],actual:['实际赔付','实际赔付金额','赔付金额'],faultId:['报故单号','报故编号','关联报故单号'],dept:['责任部门','主责部门'],deadline:['截止日期','完成期限'],status:['处理状态','状态'],currency:['币种','货币']},required:['id','customer','amount']}
 };
 const trim=x=>String(x??'').trim();
 Object.assign(definitions.fault.fields,{sn:['SN','产品SN','报故-SN'],category:['产品类别','产品类型'],sourcing:['自制外购','自制/外购'],dept:['责任部门','主责部门'],secondary:['次要责任部门'],status:['是否闭环','处理状态'],diagnosis:['问题判定','分析判定'],major:['重大质量问题'],batch:['批量问题'],projectType:['量产新品','项目阶段'],reasonType:['问题分类']});
 Object.assign(definitions.claim.fields,{category:['产品类别'],sourcing:['自制外购','自制／外购','自制/外购'],agreed:['同意索赔金额','同意金额','同意索赔（元）'],rejected:['拒绝索赔金额','拒绝金额','拒绝索赔（元）'],estimated:['预计赔付金额','预计赔付（元）'],negotiation:['协商状态']});
+
+Object.assign(definitions.claim.fields,{
+ processingDate:['处理日期'],nonconformityId:['不合格单号'],failureMode:['失效模式'],customerMaterial:['客户料号'],
+ sn:['SN号','SN'],logisticsName:['物流名称'],quantity:['数量'],photo:['故障照片'],customerInitiator:['客户发起人'],
+ location:['厂内/厂外','厂内／厂外'],responsibility:['责任判定'],handlingResult:['处理结果'],handler:['处理人'],
+ supplierAmount:['供应商索赔金额'],supplierAgreed:['供应商承认金额'],remarks:['备注']
+});
+definitions.claim.fields.material.push('内部料号');
+definitions.claim.fields.issue.push('不合格描述');
+definitions.claim.fields.amount.push('提出索赔金额');
+definitions.claim.fields.agreed.push('承认金额','承认索赔金额');
+Object.assign(definitions.fault.fields,{
+ assemblyMaterial:['故障件总成料号','故障件总成料号(4/5X料号)'],customerCode:['客户编码'],customerMaterialName:['客户物料名称'],
+ organization:['内部组织'],trackingNo:['物流单号'],firstHandler:['第一经手人'],resolution:['解决措施'],contact:['联系人'],
+ contactPhone:['联系电话'],recovered:['是否已全部追回'],claimId:['索赔单号'],repair:['维修方式'],inspection:['是否需要检测单'],
+ documentStatus:['文档状态']
+});
+definitions.fault.fields.id.push('故障申报编号');
+definitions.fault.fields.reporter.push('申报人');
+definitions.fault.fields.material.push('报故物料号');
+definitions.fault.fields.product.push('报故物料名称');
+definitions.fault.fields.sn.push('报故SN');
 definitions.shipment={kind:'shipments',fields:{id:['发货统计编号'],date:['统计月份','月份'],category:['产品类别'],quantity:['发货数量'],dept:['部门']},required:['id','date','category','quantity']};
 definitions.product={kind:'products',fields:{id:['产品编号','映射编号'],material:['料号','物料号'],product:['产品名称'],category:['产品类别'],sourcing:['自制外购','自制／外购','自制/外购']},required:['id','material','product','category']};
 function csvParse(text){const rows=[];let row=[],cell='',quoted=false;for(let i=0;i<text.length;i++){const c=text[i];if(c==='"'){if(quoted&&text[i+1]==='"'){cell+='"';i++}else if(!quoted&&cell==='')quoted=true;else if(quoted)quoted=false;else cell+=c;}else if(!quoted&&(c===','||c==='\n'||c==='\r')){row.push(cell);cell='';if(c!==','){rows.push(row);row=[];if(c==='\r'&&text[i+1]==='\n')i++}}else cell+=c;if(cell.length>32000)throw appError('单元格内容过长');if(rows.length>20000)throw appError('每次最多导入20000行，请拆分文件');}if(quoted)throw appError('CSV引号不完整');if(cell!==''||row.length){row.push(cell);rows.push(row)}return rows;}
@@ -38,16 +61,34 @@ async function readFile(name,base64,sheet){
 }
 function dateValue(value,label,optional=false){if(trim(value)===''&&optional)return '';let x=trim(value);if(/^\d{5}(\.\d+)?$/.test(x)){const serial=Number(x);x=new Date(Date.UTC(1899,11,30)+Math.floor(serial)*86400000).toISOString().slice(0,10)}x=x.replace(/[年/.]/g,'-').replace(/月/g,'-').replace(/日/g,'').split(/[ T]/)[0];const match=/^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(x);if(!match)throw appError(label+'须为有效日期');x=match[1]+'-'+match[2].padStart(2,'0')+'-'+match[3].padStart(2,'0');if(new Date(x+'T00:00:00Z').toISOString().slice(0,10)!==x)throw appError(label+'无效');return x;}
 function cents(value,label,optional=false){const x=trim(value).replace(/[¥￥,，\s]/g,'');if(!x&&optional)return null;if(!/^\d+(\.\d{1,2})?$/.test(x))throw appError(label+'须为非负金额，最多两位小数');const [whole,fraction='']=x.split('.'),n=Number(whole)*100+Number(fraction.padEnd(2,'0'));if(!Number.isSafeInteger(n)||n>1e13)throw appError(label+'超出支持范围');return n;}
-function normalize(kind,raw,store){
+function normalize(kind,raw,store,user){
  const text=Object.fromEntries(Object.entries(raw).map(([k,v])=>[k,trim(v)]));for(const v of Object.values(text))if(v.length>8000)throw appError('字段内容不能超过8000字');if(!text.id||text.id.length>200)throw appError('请提供稳定的OA单号（最多200字）');
  if(kind==='product'){for(const k of ['material','product','category'])if(!text[k])throw appError('请填写料号、产品名称和类别');return {...text,source:'OA'};}
  if(kind==='shipment'){text.date=dateValue(String(raw.date).length===7?raw.date+'-01':raw.date,'统计月份');text.date=text.date.slice(0,7)+'-01';const quantity=Number(raw.quantity);if(!text.category||trim(raw.quantity)===''||!Number.isSafeInteger(quantity)||quantity<0)throw appError('请填写类别和非负整数发货数量');return {...text,quantity,source:'OA'};}
- text.date=dateValue(raw.date,'日期');if(kind==='fault'){if(!text.product||!text.description)throw appError('产品名称和故障信息不能为空');const quantity=trim(raw.quantity)===''?null:Number(raw.quantity);if(quantity!==null&&(!Number.isSafeInteger(quantity)||quantity<0))throw appError('报故数量须为非负整数，未知请留空');return {...text,quantity,source:'OA',sourceId:text.id};}
+ text.date=dateValue(raw.date,kind==='claim'?'索赔日期':'日期',kind==='claim');if(kind==='fault'){if(!text.product||!text.description)throw appError('产品名称和故障信息不能为空');const quantity=trim(raw.quantity)===''?null:Number(raw.quantity);if(quantity!==null&&(!Number.isSafeInteger(quantity)||quantity<0))throw appError('报故数量须为非负整数，未知请留空');return {...text,quantity,source:'OA',sourceId:text.id};}
+ text.processingDate=dateValue(raw.processingDate,'处理日期',true);
+ if(!text.date&&!text.processingDate)throw appError('索赔日期或处理日期至少填写一项');
+ const quantity=trim(raw.quantity)===''?null:Number(raw.quantity);
+ if(quantity!==null&&(!Number.isSafeInteger(quantity)||quantity<0))throw appError('索赔数量须为非负整数，未知请留空');
+ const supplierAmountCents=cents(raw.supplierAmount,'供应商索赔金额',true),supplierAgreedCents=cents(raw.supplierAgreed,'供应商承认金额',true);
+ if(supplierAmountCents!==null&&supplierAgreedCents!==null&&supplierAgreedCents>supplierAmountCents)throw appError('供应商承认金额不能超过供应商索赔金额');
+ let photo=null;
+ if(text.photo){
+   const file=store.get('files',text.photo);
+   if(!file||!['image/png','image/jpeg','image/webp'].includes(file.type)||!canReadFile(store,user,file.id))throw appError('故障照片须为当前账号可访问的已上传图片文件编号');
+   photo={id:file.id,name:file.name,type:file.type,size:file.size};
+ }
+ if(text.location&&!['厂内','厂外'].includes(text.location))throw appError('厂内/厂外须填写厂内或厂外');
  if(!text.customer)throw appError('客户不能为空');if(text.currency&&!['CNY','RMB','人民币','¥','￥'].includes(text.currency.toUpperCase()))throw appError('当前金额统计仅支持人民币，请拆分其他币种');
  const amountCents=cents(raw.amount,'索赔金额'),waiverCents=cents(raw.waiver,'减免金额',true),actualCents=cents(raw.actual,'实际赔付',true);if(waiverCents!==null&&waiverCents>amountCents)throw appError('减免金额不能超过索赔金额');
  if(text.faultId&&!store.get('faults',text.faultId))throw appError('关联报故单不存在，请先导入报故表或留空后续关联');
  const agreedCents=cents(raw.agreed,'同意索赔金额',true),rejectedCents=cents(raw.rejected,'拒绝索赔金额',true),estimatedCents=cents(raw.estimated,'预计赔付金额',true);if(agreedCents!==null&&agreedCents>amountCents||rejectedCents!==null&&rejectedCents>amountCents||agreedCents!==null&&rejectedCents!==null&&agreedCents+rejectedCents>amountCents)throw appError('同意及拒绝金额不能超过申请金额');
- return {...text,agreedCents,rejectedCents,estimatedCents,currency:'CNY',deadline:dateValue(raw.deadline,'截止日期',true),status:text.status||'待处理',faultIds:text.faultId?[text.faultId]:[],amountCents,waiverCents,actualCents,amount:amountCents/100,waiver:waiverCents===null?null:waiverCents/100,actual:actualCents===null?null:actualCents/100,calculatedActualCents:waiverCents===null?null:amountCents-waiverCents,amountMismatch:waiverCents!==null&&actualCents!==null&&amountCents-waiverCents!==actualCents,source:'OA',sourceId:text.id};
+ return {...text,quantity,photo,supplierAmountCents,supplierAgreedCents,supplierAmount:supplierAmountCents===null?null:supplierAmountCents/100,supplierAgreed:supplierAgreedCents===null?null:supplierAgreedCents/100,agreedCents,rejectedCents,estimatedCents,currency:'CNY',deadline:dateValue(raw.deadline,'截止日期',true),status:text.status||'待处理',faultIds:text.faultId?[text.faultId]:[],amountCents,waiverCents,actualCents,amount:amountCents/100,waiver:waiverCents===null?null:waiverCents/100,actual:actualCents===null?null:actualCents/100,calculatedActualCents:waiverCents===null?null:amountCents-waiverCents,amountMismatch:waiverCents!==null&&actualCents!==null&&amountCents-waiverCents!==actualCents,source:'OA',sourceId:text.id};
+}
+function validateSupplierAmounts(data){
+ const read=key=>data[key+'Cents']??(data[key]==null||data[key]===''?null:cents(data[key],key==='supplierAmount'?'供应商索赔金额':'供应商承认金额',true));
+ const amount=read('supplierAmount'),agreed=read('supplierAgreed');
+ if(amount!==null&&agreed!==null&&agreed>amount)throw appError('供应商承认金额不能超过供应商索赔金额');
 }
 function guessMapping(kind,headers){return Object.fromEntries(Object.entries(definitions[kind].fields).map(([key,aliases])=>[key,headers.find(h=>[key,...aliases].some(a=>a.toLowerCase()===h.toLowerCase()))||'']));}
 const fingerprint=data=>createHash('sha256').update(JSON.stringify(data)).digest('hex');
@@ -57,11 +98,19 @@ export function createImportService({store}){
  async function preview(body,user){requirePermission(user,'imports.manage');const kind=body.kind;if(!definitions[kind])throw appError('导入类型无效');const parsed=await readFile(body.name,body.base64,body.sheet);const table=parsed.table.filter(r=>r.some(v=>trim(v)!==''));if(table.length<2)throw appError('表格中没有数据行');const headers=table[0].map(trim);if(headers.some(h=>!h)||new Set(headers).size!==headers.length)throw appError('表头不能空白或重复，请先整理文件');
  const mapping={...guessMapping(kind,headers),...(body.mapping||{})};for(const [key,value]of Object.entries(mapping))if(!Object.hasOwn(definitions[kind].fields,key)||value&&!headers.includes(value))throw appError('字段匹配无效');
  const missing=definitions[kind].required.filter(k=>!mapping[k]),rows=[],errors=[],duplicates=[],changes=[],seen=new Set();
- for(let i=1;i<table.length;i++){const raw=Object.fromEntries(Object.entries(mapping).map(([k,h])=>[k,h?table[i][headers.indexOf(h)]??'':'']));const row={rowNumber:i+1,data:raw,status:'new',errors:[],changes:[]};try{if(missing.length)throw appError('请匹配必填列：'+missing.map(k=>definitions[kind].fields[k][0]).join('、'));const data=normalize(kind,raw,store);if(kind==='shipment'||kind==='product'){const identity=r=>kind==='product'?r.material:[r.date,r.category,r.dept||''].join('|');if(rows.some(r=>r.status!=='error'&&identity(r.data)===identity(data))||store.list(definitions[kind].kind).some(r=>r.id!==data.id&&(identity(r)===identity(data)||kind==='shipment'&&r.date===data.date&&r.category===data.category&&(!r.dept||!data.dept))))throw appError(kind==='product'?'同一料号已有分类映射，请使用原编号更新':'同一月份、类别与部门已有发货统计，请使用原编号更新');}if(seen.has(data.id))throw appError('文件中单号重复：'+data.id);seen.add(data.id);row.data=data;row.sourceHash=fingerprint(data);const old=store.get(definitions[kind].kind,data.id);row.existingVersion=old?.version||0;if(old){if(old.importSourceHash===row.sourceHash){row.status='duplicate';duplicates.push(data.id)}else{row.status='update';row.changes=Object.keys(data).filter(k=>JSON.stringify(old[k])!==JSON.stringify(data[k])).map(k=>({field:k,before:old[k]??null,after:data[k]}));changes.push({id:data.id,changes:row.changes})}}}catch(e){row.status='error';row.errors.push(e.message);errors.push({rowNumber:i+1,message:e.message})}rows.push(row);}
+ for(let i=1;i<table.length;i++){const raw=Object.fromEntries(Object.entries(mapping).map(([k,h])=>[k,h?table[i][headers.indexOf(h)]??'':'']));const row={rowNumber:i+1,data:raw,status:'new',errors:[],changes:[]};try{if(missing.length)throw appError('请匹配必填列：'+missing.map(k=>definitions[kind].fields[k][0]).join('、'));const data=normalize(kind,raw,store,user);if(kind==='shipment'||kind==='product'){const identity=r=>kind==='product'?r.material:[r.date,r.category,r.dept||''].join('|');if(rows.some(r=>r.status!=='error'&&identity(r.data)===identity(data))||store.list(definitions[kind].kind).some(r=>r.id!==data.id&&(identity(r)===identity(data)||kind==='shipment'&&r.date===data.date&&r.category===data.category&&(!r.dept||!data.dept))))throw appError(kind==='product'?'同一料号已有分类映射，请使用原编号更新':'同一月份、类别与部门已有发货统计，请使用原编号更新');}if(seen.has(data.id))throw appError('文件中单号重复：'+data.id);seen.add(data.id);
+const optionalFields=["processingDate","nonconformityId","failureMode","customerMaterial","sn","logisticsName","quantity","photo","customerInitiator","location","responsibility","handlingResult","handler","supplierAmount","supplierAgreed","remarks","assemblyMaterial","customerCode","customerMaterialName","organization","trackingNo","firstHandler","resolution","contact","contactPhone","recovered","claimId","repair","inspection","documentStatus"];
+for(const field of optionalFields)if(!mapping[field]){
+  delete data[field];
+  if(['supplierAmount','supplierAgreed'].includes(field))delete data[field+'Cents'];
+}
+if(kind==='claim'&&!mapping.date)delete data.date;
+row.data=data;row.sourceHash=fingerprint(data);const old=store.get(definitions[kind].kind,data.id);row.existingVersion=old?.version||0;if(kind==='claim')validateSupplierAmounts({...old,...data});if(old){if(old.importSourceHash===row.sourceHash){row.status='duplicate';duplicates.push(data.id)}else{row.status='update';row.changes=Object.keys(data).filter(k=>JSON.stringify(old[k])!==JSON.stringify(data[k])).map(k=>({field:k,before:old[k]??null,after:data[k]}));changes.push({id:data.id,changes:row.changes})}}}catch(e){row.status='error';row.errors.push(e.message);errors.push({rowNumber:i+1,message:e.message})}rows.push(row);}
  const batchId=randomUUID(),result={batchId,kind,name:String(body.name).slice(0,200),sheets:parsed.sheets,sheet:parsed.sheet,headers,mapping,rows,errors,duplicates,changes,total:rows.length,valid:rows.filter(r=>r.status!=='error').length,createdAt:new Date().toISOString(),createdBy:user.id,status:'preview',fileHash:parsed.hash};store.put('imports',batchId,result,{actor:user,event:'import.preview'});return result;
  }
  function commit(id,body,user){requirePermission(user,'imports.manage');const batch=store.get('imports',id);if(!batch)throw appError('导入预览不存在',404);if(batch.status==='committed')return batch.result;if(batch.errors.length)throw appError('存在错误行，请修正后重新预览',400,batch.errors);if(batch.createdBy!==user.id&&user.role!=='admin')throw appError('只能确认本人创建的导入批次',403);
  return store.transaction(()=>{const result={batchId:id,inserted:0,updated:0,duplicates:0,skipped:0};for(const row of batch.rows){if(row.status==='duplicate'){result.duplicates++;continue}if(row.status==='update'&&!body.updateExisting){result.skipped++;continue}const kind=definitions[batch.kind].kind,old=store.get(kind,row.data.id);if((old?.version||0)!==row.existingVersion)throw appError('预览后源单发生变化，请重新预览',409);let data={...old,...row.data,importSourceHash:row.sourceHash,importBatch:id,updatedAt:new Date().toISOString()};if(batch.kind==='claim'&&old?.faultIds?.length&&!row.data.faultId){data.faultIds=old.faultIds;data.faultId=old.faultId||old.faultIds[0]}
+ if(batch.kind==='claim')validateSupplierAmounts(data);
  store.put(kind,row.data.id,data,{expectedVersion:row.existingVersion});if(old&&batch.kind==='fault'){for(const analysis of store.list('analyses').filter(a=>a.faultId===row.data.id&&a.status!=='closed'))store.put('analyses',analysis.id,{...analysis,sourceUpdateAvailable:true});}result[old?'updated':'inserted']++;}
  store.put('imports',id,{...batch,status:'committed',committedAt:new Date().toISOString(),result});store.put('settings','import-mapping-'+batch.kind,{mapping:batch.mapping});store.audit(user,'import.commit',result);return result;});
  }
