@@ -5,7 +5,7 @@ const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)],clo
 const roleNames={admin:'管理员','quality-engineer':'质量工程师','failure-analyst':'失效分析人员',worker:'执行人员',viewer:'看板与报告查看','freeze-clerk':'变更管理员'};
 const permNames={'analysis.manage':'管理完整8D','analysis.start':'开启8D','tasks.assign':'分派任务','tasks.review':'验收与确认','tasks.transfer':'转交自己的任务','imports.manage':'导入OA数据','preliminary.write':'填写初步失效分析','freeze.number.write':'填写D2冻结编号及数量'};
 const stateNames={active:'进行中',closed:'已关闭',pending:'待审批',draft:'待完成',returned:'退回补充',submitted:'待验收',accepted:'已完成'};
-const S={data:null,user:null,csrf:'',route:'overview',query:'',workFilter:'mine',period:'month',date:C.dateNow(),analysis:null,stage:'follow',forms:[],entries:new Map(),importPreview:null,importSource:null,metrics:null,busy:false};
+const S={data:null,user:null,csrf:'',route:'overview',query:'',workFilter:'mine',period:'month',date:C.dateNow(),analysis:null,stage:'follow',forms:[],entries:new Map(),importPreview:null,importSource:null,metrics:null,todoTab:'todo',todoApplied:{},workbench:null,todoLoading:false,busy:false};
 let toastTimer,v4,guide,groupAdmin,tutorial;
 function toast(s){$('#toast').textContent=s;$('#toast').style.display='block';clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').style.display='none',4500)}
 async function api(path,body,method){const opt={method:method||(body===undefined?'GET':'POST'),headers:{}};if(body!==undefined){opt.headers['content-type']='application/json';opt.body=JSON.stringify(body)}if(opt.method!=='GET')opt.headers['x-csrf-token']=S.csrf;const r=await fetch(path,opt);const data=await r.json().catch(()=>({error:'服务返回了无法读取的响应'}));if(!r.ok){const error=new Error(data.error||'请求失败');error.status=r.status;error.details=data.details;throw error}return data}
@@ -24,15 +24,16 @@ function photos(files=[]){return '<div class="photo-grid">'+files.map(f=>'<a hre
 function historyHTML(rows=[]){return rows.length?rows.map(r=>'<div class="history-row"><small>'+E(r.at||r.date||'')+' · '+E(r.actor||r.by||'')+'</small><span class="text-wrap">'+E(r.text||r.action||r.reason||JSON.stringify(r))+'</span></div>').join(''):'<p class="help">暂无操作记录。</p>'}
 function prelimRecords(faultId){return (S.data.preliminary||[]).filter(p=>p.faultId===faultId)}
 function preliminaryHTML(faultId,records=null){const a=records||prelimRecords(faultId);return a.length?a.map(p=>'<article class="prelim"><div class="action-row"><h4>'+E(person(p.owner||p.authorId||p.userId).name)+' · 初步分析 <span class="tag">'+(p.status==='submitted'?'已提交':'草稿')+'</span></h4>'+(!records&&(p.owner||p.authorId||p.userId)===S.user.id?'<button class="work-btn compact" data-prelim-edit="'+E(p.id)+'" data-fault="'+E(faultId)+'">编辑我的记录</button>':'')+'</div><p class="help">'+E(p.updatedAt||p.createdAt||'')+(p.due?' · 期限 '+E(p.due):'')+'</p><p><b>现象：</b><span class="text-wrap">'+E(p.phenomenon||'未填写')+'</span></p><p><b>检查过程：</b><span class="text-wrap">'+E(p.process||'未填写')+'</span></p><p><b>初步结论：</b><span class="text-wrap">'+E(p.conclusion||'未填写')+'</span></p>'+photos(p.files)+(p.history?.length?'<button class="work-btn compact" data-prelim-history="'+E(p.id)+'">版本记录</button>':'')+'</article>').join(''):'<p class="help">尚无初步分析记录。初步分析用于后续参考，不代替D4验证。</p>'}
-async function refresh(){S.data=await api('/api/bootstrap');S.user=S.data.user;S.csrf=S.data.csrf||S.csrf;S.data.queues=S.user.groupId&&!can('analysis.view')?{rows:[]}:await api('/api/queues');if(Array.isArray(S.data.settings))S.data.settings=S.data.settings.find(r=>r.id==='system')||{};C.people.splice(0,C.people.length,...[...S.data.users,...(S.data.historicalPeople||[])].map(u=>({...u,roles:(u.role==='admin'||u.permissions?.includes('analysis.manage'))?['quality-manager']:[]})));const deps=[...new Set([...C.departments,...S.data.users.map(u=>u.dept).filter(Boolean)])];C.departments.splice(0,C.departments.length,...deps);if(S.user.mustChangePassword&&!S.forms.some(f=>f.type==='password'))setTimeout(changePassword,0);if(S.analysis){const current=S.data.analyses.find(x=>x.id===S.analysis.id);if(current)S.analysis=itemData(await api('/api/analyses/'+encodeURIComponent(current.id)))}render();renderDialogs();}
+async function refresh(){S.data=await api('/api/bootstrap');S.user=S.data.user;S.csrf=S.data.csrf||S.csrf;S.data.queues=S.user.groupId&&!can('analysis.view')?{rows:[]}:await api('/api/queues');S.workbench=null;if(Array.isArray(S.data.settings))S.data.settings=S.data.settings.find(r=>r.id==='system')||{};C.people.splice(0,C.people.length,...[...S.data.users,...(S.data.historicalPeople||[])].map(u=>({...u,roles:(u.role==='admin'||u.permissions?.includes('analysis.manage'))?['quality-manager']:[]})));const deps=[...new Set([...C.departments,...S.data.users.map(u=>u.dept).filter(Boolean)])];C.departments.splice(0,C.departments.length,...deps);if(S.user.mustChangePassword&&!S.forms.some(f=>f.type==='password'))setTimeout(changePassword,0);if(S.analysis){const current=S.data.analyses.find(x=>x.id===S.analysis.id);if(current)S.analysis=itemData(await api('/api/analyses/'+encodeURIComponent(current.id)))}render();renderDialogs();}
 async function boot(){try{const status=await api('/api/status');try{await refresh();await openHash()}catch(e){if(e.status!==401)throw e;renderLogin(status)}}catch(e){$('#app').innerHTML='<div class="login"><h1>本机服务未连接</h1><p class="error">'+E(e.message)+'</p><button class="work-btn" onclick="location.reload()">重试</button></div>'}}
 function renderLogin(status){WorkspaceNavigation.unmount();document.getElementById('testTutorial')?.remove();S.data=null;S.user=null;$('#dialogRoot').innerHTML='';$('#app').innerHTML='<div class="login"><div class="brandline">客户质量管理系统</div><h1>'+(status.initialized?'登录':'创建首位管理员')+'</h1><p class="help">'+(status.initialized?'使用管理员分配的真实账号登录。身份与业务权限由服务端验证。':'安装包不包含默认密码，请在本机设置管理员账号。')+'</p><span class="env">'+E(status.environment==='production'?'正式环境':'测试环境 · 模拟数据')+'</span><form id="authForm">'+field('用户名','username','','text','required autocomplete="username"')+(!status.initialized?field('管理员姓名','name','','text','required autocomplete="name"'):'')+field('密码','password','','password','required minlength="10" autocomplete="'+(status.initialized?'current-password':'new-password')+'"')+'<button class="work-btn accent" type="submit">'+(status.initialized?'登录':'创建管理员并进入')+'</button><p id="authError" class="error"></p></form><p class="help">测试和正式数据分别保存。本机关闭时，其他设备无法访问此服务。'+(status.environment==='test'&&status.initialized?'<br>测试初始密码：Test@2026-用户名，例如管理员 admin / Test@2026-admin。<br>完整账号表在安装目录：测试账号密码表.txt；自行改密后以新密码为准。':'')+'</p></div>';$('#authForm').onsubmit=async ev=>{ev.preventDefault();const form=ev.target,b=form.querySelector('button');b.disabled=true;try{const d=await api(status.initialized?'/api/login':'/api/setup',Object.fromEntries(new FormData(form)));S.csrf=d.csrf;await refresh();await openHash()}catch(e){$('#authError').textContent=e.message}finally{b.disabled=false}}}
 const recordLists=window.QualityRecords.create({escape:E});
 let recordUserId,metricRequest=0;
-const nav=[['overview','◈','质量总览'],['work','◷','我的分析与待办'],['faults','▤','报故与初步分析'],['claims','¥','索赔记录'],['closure','▦','部门按期关闭率'],['archives','▧','8D报告库'],['imports','↑','OA数据导入'],['users','♙','账号权限'],['system','⚙','备份与对接'],['guide','?','使用说明']];
-const routePermissions={overview:'dashboard.view',closure:'dashboard.view',faults:'faults.view',claims:'claims.view',archives:'pdf.view',work:'analysis.view',imports:'imports.manage'};
+const nav=[['overview','◈','质量总览'],['todo','▣','我的待办与进度'],['work','◷','我的分析与待办'],['faults','▤','报故与初步分析'],['claims','¥','索赔记录'],['closure','▦','部门按期关闭率'],['archives','▧','8D报告库'],['imports','↑','OA数据导入'],['users','♙','账号权限'],['system','⚙','备份与对接'],['guide','?','使用说明']];
+const routePermissions={overview:'dashboard.view',closure:'dashboard.view',faults:'faults.view',claims:'claims.view',archives:'pdf.view',work:'analysis.view',todo:'analysis.view',imports:'imports.manage'};
 const navigationGroups=[
   {label:'质量看板',routes:['overview']},
+  {label:'我的待办与进度',routes:['todo']},
   {label:'报故与初步分析',routes:['faults']},
   {label:'8D 分析',routes:['work','closure','archives']},
   {label:'索赔记录',routes:['claims']},
@@ -62,7 +63,7 @@ function render(){
   if(!S.data)return;
   WorkspaceNavigation.unmount();
   $('#app').innerHTML='<div class="app-shell">'+navigationHTML()+'<div class="main-wrap"><main class="content" id="page" data-ui-route="'+E(S.route)+'"></main></div></div>';
-  const views={overview:renderOverview,work:renderWork,faults:renderFaults,claims:renderClaims,closure:renderClosure,archives:renderArchives,imports:renderImports,users:renderUsers,system:renderSystem,guide:renderGuide};(views[S.route]||renderOverview)();}
+  const views={overview:renderOverview,todo:renderTodo,work:renderWork,faults:renderFaults,claims:renderClaims,closure:renderClosure,archives:renderArchives,imports:renderImports,users:renderUsers,system:renderSystem,guide:renderGuide};(views[S.route]||renderOverview)();}
 
 function title(h,p='',actions=''){return '<div class="title-row"><div><h1>'+h+'</h1><p>'+p+'</p></div><div class="action-row">'+actions+'</div></div>'}
 function queryRows(rows,fields){const q=S.query.trim().toLowerCase();return rows.filter(r=>!q||fields.map(k=>typeof k==='function'?k(r):r[k]).join(' ').toLowerCase().includes(q))}
@@ -78,7 +79,8 @@ function queueRows(){if(S.data.queues?.rows)return S.data.queues.rows.filter(r=>
 function renderOverview(){return renderDashboard()}
 function renderWork(){const queue=queueRows(),filters=[['mine','需要我处理'],['review','待验收'],['assign','待分配'],['all','全部分析']];let items=queryRows(S.data.analyses,['id','title','faultId',x=>x.revised?.model,x=>x.revised?.partNo]);items=recordLists.filter('work',items,S.data);if(S.workFilter!=='all')items=items.filter(x=>queue.some(r=>r.x.id===x.id&&(S.workFilter==='mine'||S.workFilter==='review'&&r.type==='待验收'||S.workFilter==='assign'&&r.type==='待分配')));$('#page').innerHTML=title('我的分析与待办','根据当前账号显示下一步，等待他人确认与自己待完成分开展示。')+preliminaryPendingHTML()+'<div class="kpis">'+[['待完成',queue.filter(r=>['待完成','退回补充'].includes(r.type)).length],['待分配',queue.filter(r=>r.type==='待分配').length],['待验收',queue.filter(r=>r.type==='待验收').length],['待阶段确认',queue.filter(r=>['待阶段确认','可关单'].includes(r.type)).length]].map(([l,n])=>'<div class="kpi"><small>'+l+'</small><b>'+n+'</b></div>').join('')+'</div>'+searchBar('搜索报告、料号、产品或问题')+recordLists.filters('work',S.data,items.length)+'<div class="pill-tabs">'+filters.map(([k,l])=>'<button data-work-filter="'+k+'" class="'+(S.workFilter===k?'active':'')+'">'+l+'</button>').join('')+'</div><section class="panel table-wrap" style="margin-top:16px"><table><thead><tr><th>8D编号</th><th>报故编号</th><th>分析标题</th><th>阶段与待办</th><th>操作</th></tr></thead><tbody>'+items.map(x=>{W.ensure(x);const p=W.progress(x),qs=queue.filter(r=>r.x.id===x.id);return '<tr><td>'+E(x.id)+'</td><td>'+E(x.faultId)+'</td><td><strong>'+E(x.title)+'</strong></td><td><span class="tag '+(x.status==='closed'?'good':'')+'">'+E(stateNames[x.status])+'</span> <small>阶段 '+p.stagesDone+'/'+p.stagesTotal+' · 任务 '+p.tasksDone+'/'+p.tasksTotal+' · 待确认 '+p.pending+'</small>'+qs.slice(0,3).map(r=>'<p><button class="work-btn compact" data-open-analysis="'+E(x.id)+'" data-stage="'+E(r.t?.stage||r.stage)+'" '+(r.t?'data-task="'+E(r.t.id)+'"':'')+'>'+E(r.type)+'：'+E(r.t?.title||r.stage)+' →</button></p>').join('')+'</td><td><button class="work-btn accent" data-open-analysis="'+E(x.id)+'">'+(x.status==='closed'?'查看归档':'进入8D')+' →</button></td></tr>'}).join('')+'</tbody></table>'+(items.length?'':'<div class="empty">当前没有匹配事项。<br><button class="work-btn" data-work-filter="all">查看全部分析</button></div>')+'</section>';}
 function renderFaults(){const rows=recordLists.filter('faults',queryRows(S.data.faults,['id','material','product','model','customer','description']),S.data);$('#page').innerHTML=title('报故与初步分析','先收集事实与初步失效分析，由质量工程师选择是否开展8D。')+recordSearch('搜索报故编号、料号、产品、客户或故障','fault')+recordLists.filters('faults',S.data,rows.length)+'<section class="panel table-wrap"><table><thead><tr><th>报故编号／日期</th><th>产品／故障</th><th>客户／数量</th><th>初步分析</th><th>操作</th></tr></thead><tbody>'+rows.map(f=>{const x=S.data.analyses.find(x=>x.faultId===f.id),p=prelimRecords(f.id);return '<tr><td>'+E(f.id)+'<small>'+E(f.date)+'</small></td><td>'+E(f.model||f.product)+'<small>'+E(f.description)+'</small></td><td>'+E(f.customer)+'<small>'+(f.quantity==null?'数量待补充':E(f.quantity)+' pcs')+'</small></td><td>'+p.filter(x=>x.status==='submitted').length+' 份已提交'+(f.preliminaryAssignment?'<small>分派：'+E(person(f.preliminaryAssignment.userId||f.preliminaryAssignment.owner).name)+'</small>':'')+'</td><td><button class="work-btn compact" data-open-fault="'+E(f.id)+'">查看报故</button> '+(x?'<button class="work-btn compact" data-open-analysis="'+E(x.id)+'">已有8D</button>':can('analysis.start')?'<button class="work-btn compact accent" data-start-analysis="'+E(f.id)+'">开启8D</button>':'')+'</td></tr>'}).join('')+'</tbody></table>'+(rows.length?'':'<div class="empty">暂无匹配的报故记录。</div>')+'</section>';}
-function renderClaims(){const rows=recordLists.filter('claims',queryRows(S.data.claims,['id','material','product','model','customer','issue','faultId']),S.data);$('#page').innerHTML=title('索赔记录','允许独立索赔与后续关联；关联不会重复计入金额。','<button class="work-btn" data-action="export-claims">导出当前清单</button>')+recordSearch('搜索索赔编号、料号、产品、客户或报故单','claim')+recordLists.filters('claims',S.data,rows.length)+QualityRecords.claimTable(rows,E,money);}
+function claimCanManage(){return S.user.role==='admin'||can('analysis.manage')}
+function renderClaims(){const rows=recordLists.filter('claims',queryRows(S.data.claims,['id','material','product','model','customer','issue','faultId',x=>x.state?.ownerName,x=>x.state?.stageLabel]),S.data);const actions=(claimCanManage()?'<button class="work-btn accent" data-claim-new>＋ 新增索赔</button> ':'')+'<button class="work-btn" data-action="export-claims">导出当前清单</button>';$('#page').innerHTML=title('索赔记录','保留原22项字段；新增、办理、整单转办与责任分摊由当前经办人完成，权限与合计由服务端校验。',actions)+recordSearch('搜索索赔编号、料号、产品、客户、经办人或报故单','claim')+recordLists.filters('claims',S.data,rows.length)+QualityRecords.claimTable(rows,E,money,{me:S.user.id,canManage:claimCanManage()});}
 function renderArchives(){const rows=queryRows(S.data.analyses.filter(x=>x.status==='closed'),['id','faultId','title',x=>x.revised?.partNo||x.revised?.material,x=>x.revised?.model,x=>x.revised?.product]);$('#page').innerHTML=title('8D报告库','关单报告按快照归档，全员可以搜索、预览及下载。')+searchBar('输入料号、产品名称、型号或报告编号')+'<section class="panel">'+rows.map(x=>'<article class="work-card"><div><small>'+E(x.id)+' · '+E(x.closedAt||'')+'</small><h3>'+E(x.title)+'</h3><p>料号：'+E(x.revised?.partNo||x.revised?.material||'待补充')+' · '+E(x.revised?.model)+'</p><p class="help">PDF状态：'+E(archiveState(x))+'</p></div><div class="action-row"><button class="work-btn" data-open-analysis="'+E(x.id)+'">查看8D</button><button class="work-btn accent" data-open-pdf="'+E(x.id)+'">预览PDF</button>'+(manage()?'<button class="work-btn compact" data-retry-pdf="'+E(x.id)+'">生成／重试</button>':'')+'</div></article>').join('')+(rows.length?'':'<div class="empty">暂无匹配的已关闭报告。</div>')+'</section>';}
 async function renderClosure(){const token=++metricRequest;
   S.metricFilter ||= {from:C.dateNow().slice(0,7)+'-01',to:C.dateNow(),department:''};
@@ -100,6 +102,8 @@ Object.assign(claimFieldNames,{category:'产品类别',sourcing:'自制／外购
 Object.assign(faultFieldNames,{assemblyMaterial:'故障件总成料号',customerCode:'客户编码',customerMaterialName:'客户物料名称',organization:'内部组织',trackingNo:'物流单号',firstHandler:'第一经手人',resolution:'解决措施',contact:'联系人',contactPhone:'联系电话',recovered:'是否已全部追回',claimId:'索赔单号',repair:'维修方式',inspection:'是否需要检测单',documentStatus:'文档状态'});
 Object.assign(claimFieldNames,Object.fromEntries(QualityRecords.claimColumns.map(([key,label])=>[key,label])));
 Object.assign(claimFieldNames,{id:'索赔单号（必填）',date:'索赔日期（可与处理日期二选一）',processingDate:'处理日期（可与索赔日期二选一）',customer:'客户名称（必填）',amount:'索赔金额（元，必填）'});
+// 办理新增字段只用于详情展示，不并入OA导入字段映射，避免把内部字段当成可导入列。
+const claimExtraNames={stage:'办理阶段',ownerId:'经办人账号',ownerName:'当前经办人',deadline:'办理期限',status:'OA处理状态',processNote:'处理结果',source:'记录来源',createdAt:'新增时间',transferredAt:'最近转办时间',startedAt:'开始办理时间',processedAt:'处理提交时间',completedAt:'结束时间'};
 const importFields={fault:faultFieldNames,claim:claimFieldNames,shipment:{id:'发货统计编号（必填）',date:'统计月份（必填）',category:'产品类别（必填）',quantity:'发货数量（必填）',dept:'部门'},product:{id:'映射编号（必填）',material:'料号（必填）',product:'产品名称（必填）',category:'产品类别（必填）',sourcing:'自制／外购'}};
 function renderImports(){if(!can('imports.manage')){$('#page').innerHTML='<div class="empty">此账号没有导入权限。</div>';return}const p=S.importPreview;$('#page').innerHTML=title(S.importContext?.label||'数据导入','支持 .xlsx 和 .csv；旧版 .xls 请先另存为 .xlsx。')+'<section class="panel"><form id="importForm"><div class="field-grid"><label>导入类型<select name="kind" id="importKind"><option value="fault" '+(S.importSource?.kind==='fault'?'selected':'')+'>报故表 → 报故工作台</option><option value="claim" '+(S.importSource?.kind==='claim'?'selected':'')+'>索赔表 → 金额统计</option><option value="shipment" '+(S.importSource?.kind==='shipment'?'selected':'')+'>月度发货表 → 比率分母</option><option value="product" '+(S.importSource?.kind==='product'?'selected':'')+'>产品分类与料号映射</option></select></label><label>选择OA文件<input id="importFile" type="file" accept=".xlsx,.csv" required></label></div><p class="help">报故和索赔分别入库；不要求每笔索赔都有报故单号。只按明确编号关联。</p><button class="work-btn accent" type="submit">读取并预览</button> <a class="work-btn" id="templateDownload" href="/api/imports/templates?kind='+(S.importSource?.kind||'fault')+'">下载字段模板</a></form></section><section id="importPreview">'+(p?importPreviewHTML(p):'<div class="panel"><p class="help">上传后匹配列名，提交前显示新增、重复、变更和错误行。</p></div>')+'</section>';const context=S.importContext;
   if(context){
@@ -144,9 +148,222 @@ function rootPending(){return window.TaskSequence.pending(S.analysis,S.user)[0];
 function basicEditor(){const x=S.analysis;pushForm({type:'basic',title:'修改分析基础信息',html:'<form id="basicForm"><div class="field-grid">'+[['product','产品名称'],['model','产品型号'],['partNo','料号'],['customer','客户'],['project','项目'],['quantity','涉及数量（pcs）']].map(([k,l])=>field(l,k,x.revised[k]??'',k==='quantity'?'number':'text')).join('')+'</div>'+field('问题描述','description',x.stages.D2.fields.description||x.revised.description,'textarea')+field('发生地点与工况','condition',x.stages.D2.fields.condition||x.revised.condition,'textarea')+field('影响范围与数量说明','impact',x.stages.D2.fields.impact||'','textarea')+field('修改理由（有修订时必填）','editReason',x.stages.D2.fields.editReason||'','textarea')+'</form>',save:async()=>{const v=Object.fromEntries(new FormData($('#basicForm'))),revised={...x.revised};for(const k of ['product','model','partNo','customer','project','quantity','description','condition'])revised[k]=v[k];await command('patch-stage',{stage:'D2',revised,fields:{description:v.description,condition:v.condition,impact:v.impact,editReason:v.editReason}});await refresh();popForm();toast('基础信息已更新，原报故快照保留')}})}
 function teamEditor(id){const x=S.analysis,m=x.team.find(m=>m.personId===id);pushForm({type:'team',title:id==='new'?'增加团队成员':'成员职责与分工',readonly:!manage()||x.status!=='active',html:'<form id="teamForm"><label>团队成员<select name="personId" '+(m?'disabled':'')+'>'+userOpts(m?.personId)+'</select></label>'+field('本次职责与分工','role',m?.role||'','textarea')+'</form>'+(m&&manage()&&id!==x.owner?'<button class="work-btn danger" data-remove-member="'+E(id)+'">从当前团队移除（历史保留）</button>':''),save:async()=>{if(!manage())return;const v=Object.fromEntries(new FormData($('#teamForm'))),pid=m?.personId||v.personId;if(!pid||!v.role.trim())throw Error('请选择成员并填写职责分工');const team=clone(x.team),target=team.find(m=>m.personId===pid);if(target){target.role=v.role;target.inactive=false}else team.push({personId:pid,role:v.role});await command('patch-stage',{stage:'D1',team});await refresh();popForm();toast('团队已更新')}})}
 function faultView(id){const f=S.data.faults.find(f=>f.id===id),x=S.data.analyses.find(x=>x.faultId===id);pushForm({type:'fault',faultId:id,title:'报故详情 · '+f.id,html:sourceHTML(f)+'<div class="action-row">'+(can('preliminary.write')?'<button class="work-btn accent" data-add-prelim="'+E(id)+'">＋ 填写我的初步分析</button>':'')+(can('tasks.assign')?'<button class="work-btn" data-assign-prelim="'+E(id)+'">指定初步分析人员与期限</button>':'')+(x?'<button class="work-btn" data-open-analysis="'+E(x.id)+'">查看已有8D</button>':can('analysis.start')?'<button class="work-btn" data-start-analysis="'+E(id)+'">开启8D分析</button>':'')+'</div><h3 style="margin-top:24px">初步失效分析</h3>'+preliminaryHTML(id)})}
+/* ---------- 我的待办与进度：真实聚合（初步分析 / 8D含复测与SQE / 索赔整单） ---------- */
+const TODO_SOURCE={analysis:'8D任务',preliminary:'初步分析',claim:'索赔'};
+let todoRequest=0,allocTimer=null;
+function claimById(id){return S.data.claims.find(c=>c.id===id)}
+function engineerOptions(selected,exclude){
+  const list=(S.workbench?.engineers)||S.data.users.filter(u=>u.enabled!==false&&(u.role==='quality-engineer'||u.permissions?.includes('analysis.manage'))).map(u=>({id:u.id,name:u.name,dept:u.dept||''}));
+  return '<option value="">请选择质量工程师</option>'+list.filter(u=>u.id!==exclude).map(u=>'<option value="'+E(u.id)+'" '+(u.id===selected?'selected':'')+'>'+E(u.name)+' · '+E(u.dept)+'</option>').join('');
+}
+function deptOptions(selected){
+  const list=[...new Set([...S.data.users.map(u=>u.dept).filter(Boolean),...(S.data.claims||[]).flatMap(c=>(c.state?.shares||[]).map(s=>s.dept)),selected].filter(Boolean))].sort((a,b)=>a.localeCompare(b,'zh-CN'));
+  return '<option value="">请选择部门</option>'+list.map(dept=>'<option value="'+E(dept)+'" '+(dept===selected?'selected':'')+'>'+E(dept)+'</option>').join('');
+}
+function allocRowHTML(row){
+  return '<div class="review-filter-row" data-alloc-row><select data-alloc-dept aria-label="责任部门">'+deptOptions(row.dept)+'</select><input data-alloc-ratio type="number" step="0.01" min="0" max="100" value="'+E(row.ratio??'')+'" aria-label="责任比例（百分数，最多两位小数）"><button type="button" class="work-btn compact" data-alloc-remove>删除</button></div>';
+}
+function allocRowsFrom(boxId='allocRows'){
+  const box=document.getElementById(boxId);if(!box)return [];
+  return [...box.querySelectorAll('[data-alloc-row]')].map(row=>({dept:row.querySelector('[data-alloc-dept]').value,ratio:row.querySelector('[data-alloc-ratio]').value})).filter(row=>row.dept||String(row.ratio).trim()!=='');
+}
+function allocPreviewHTML(d){
+  const table=['amount','agreed','actual'].map(key=>{
+    const item=d.amounts[key]||{};
+    if(!item.allocation)return '<tr><td>'+E(item.label)+'</td><td>金额待补充</td><td colspan="2">未知金额不按 0 分摊</td></tr>';
+    return '<tr><td>'+E(item.label)+'</td><td>'+money(item.amount)+'</td><td>'+item.allocation.rows.map(row=>E(row.dept)+' '+money(row.cents/100)).join('<br>')+'</td><td>'+(item.allocation.unallocated?money(item.allocation.unallocated/100)+' 未分配':'—')+'</td></tr>';
+  }).join('');
+  return '<p class="help">当前合计 <strong>'+d.total.toFixed(2)+'%</strong> · '+(d.complete?'已满 100%，可以确认。':'未满 100%，只能保存草稿；确认必须 100%。')+'</p>'+
+    '<div class="table-wrap"><table><thead><tr><th>金额口径</th><th>金额（元）</th><th>按当前比例</th><th>差额</th></tr></thead><tbody>'+table+'</tbody></table></div>';
+}
+async function previewAllocation({box='allocRows',preview='allocPreview',error='allocError',amounts}){
+  try{
+    const d=await api('/api/claim-shares/preview',{shares:allocRowsFrom(box),amounts});
+    const target=document.getElementById(preview);if(!target)return;
+    target.innerHTML=allocPreviewHTML(d);
+    const message=document.getElementById(error);if(message)message.textContent='';
+  }catch(e){const message=document.getElementById(error);if(message)message.textContent=e.message;}
+}
+async function refreshAllocPreview(){
+  const form=$('#allocForm');if(!form)return;
+  const r=claimById(form.dataset.claim);if(!r)return;
+  const amounts={};for(const key of ['amount','agreed','actual'])amounts[key]=r[key+'Cents']!=null?r[key+'Cents']/100:(r[key]??'');
+  await previewAllocation({amounts});
+}
+async function refreshNewClaimPreview(){
+  if(!document.getElementById('allocRowsNew'))return;
+  const value=name=>document.querySelector('#claimForm [name="'+name+'"]')?.value??'';
+  await previewAllocation({box:'allocRowsNew',preview:'allocPreviewNew',error:'claimError',amounts:{amount:value('amount'),agreed:value('agreed'),actual:value('actual')}});
+}
+async function saveClaimShares(confirm){
+  const form=$('#allocForm');if(!form)return;
+  const id=form.dataset.claim,r=claimById(id);
+  try{
+    const out=await api('/api/claims/'+encodeURIComponent(id)+'/shares',{shares:allocRowsFrom(),reason:$('#allocReason').value,confirm,version:r.version},'PUT');
+    S.forms=[];await refresh();claimView(id);
+    toast(out.unchanged?(out.message||'未修改'):confirm?'责任分摊已确认，基线已更新':'分摊草稿已保存，原确认基线保留');
+  }catch(e){const box=$('#allocError');if(box)box.textContent=e.message;else toast(e.message)}
+}
+function claimSharesForm(id){
+  const r=claimById(id),state=r?.state||{};
+  const current=(state.shares||[]).length?state.shares:(r?.dept?[{dept:r.dept,ratio:100}]:[]);
+  const rows=current.length?current:[{dept:'',ratio:''}];
+  pushForm({type:'claim-shares',title:'维护责任分摊 · '+id,html:'<form id="allocForm" data-claim="'+E(id)+'">'+
+    '<p class="help">上次确认分摊：'+E(state.confirmedLabel||'未确认')+'。部门不重复，比例最多两位小数，草稿可未分完，确认必须合计 100.00%。</p>'+
+    '<div id="allocRows">'+rows.map(allocRowHTML).join('')+'</div>'+
+    '<div class="action-row" style="margin:10px 0"><button type="button" class="work-btn" data-alloc-add>＋ 增加部门</button></div>'+
+    '<label>修改原因（修改已确认比例时必填，最多200字）<textarea id="allocReason"></textarea></label>'+
+    '<div id="allocPreview" class="panel"><p class="help">正在按服务端同一算法计算…</p></div><p id="allocError" class="error"></p>'+
+    '<div class="action-row"><button type="button" class="work-btn" data-shares-save>保存草稿</button><button type="button" class="work-btn accent" data-shares-confirm>确认分摊</button></div>'+
+    '</form><p class="help">金额整数分，余分归占比最大部门；同占比按部门顺序固定，早先确认值保留在历史里。</p>'});
+  refreshAllocPreview();
+}
+async function claimCommand(id,body){
+  const r=claimById(id);if(!r)return;
+  await api('/api/claims/'+encodeURIComponent(id)+'/actions',{...body,version:r.version});
+  S.forms=[];await refresh();claimView(id);toast('已保存');
+}
+function claimProcessForm(id){
+  const r=claimById(id);
+  pushForm({type:'claim-processed',title:'提交处理结果 · '+id,html:'<form id="claimProcessForm">'+field('处理措施与结果（必填，最多2000字）','note',r?.processNote||'','textarea')+field('办理期限','deadline',r?.deadline||'','date')+'</form><p class="help">提交后进入待结算；必须再确认结算结论才能结束，金额本身不能作为结束依据。</p>',save:async()=>{const v=Object.fromEntries(new FormData($('#claimProcessForm')));await claimCommand(id,{action:'processed',note:v.note,deadline:v.deadline})}});
+}
+function claimCompleteForm(id){
+  pushForm({type:'claim-complete',title:'确认结束 · '+id,html:'<form id="claimCompleteForm"><label>结算结论<select name="mode"><option value="赔付">赔付</option><option value="无需赔付">无需赔付</option></select></label>'+field('实际赔付金额（元，赔付时填写；留空沿用已登记的实际赔付／承认金额）','amount','','number','step="0.01" min="0"')+field('结算结论说明（必填，至少4字）','note','','textarea')+'</form><p class="help">无需赔付须写明判定依据；已完成的索赔不能重开或再次办理。</p>',save:async()=>{const v=Object.fromEntries(new FormData($('#claimCompleteForm')));await claimCommand(id,{action:'complete',settlement:{mode:v.mode,amount:v.amount,note:v.note}})}});
+}
+function claimTransferForm(id){
+  const r=claimById(id),state=r?.state||{};
+  pushForm({type:'claim-transfer',title:(state.ownerId?'整单转办':'指定经办人')+' · '+id,html:'<form id="claimTransferForm"><label>接收经办人（启用质量工程师）<select name="to">'+engineerOptions('',state.ownerId)+'</select></label>'+field('转办原因（必填，最多500字）','reason','','textarea')+'</form><p class="help">整单转办保留资料、原期限、金额、责任比例与历史；转出后原经办人不能继续办理，也不改变8D闭案责任。</p>',save:async()=>{const v=Object.fromEntries(new FormData($('#claimTransferForm')));if(!v.to)throw Error('请选择接收经办人');await claimCommand(id,{action:'transfer',to:v.to,reason:v.reason})}});
+}
+function newClaim(){
+  const inputs=QualityRecords.claimColumns.map(([key,label,type])=>{
+    if(key==='photo')return '';
+    if(type==='money')return field(label,key,'','number','step="0.01" min="0"');
+    if(type==='number')return field(label,key,'','number','step="1" min="0"');
+    if(type==='date')return field(label,key,'','date');
+    if(['issue','remarks','handlingResult','responsibility','failureMode','logisticsName'].includes(key))return field(label,key,'','textarea');
+    return field(label,key,'');
+  }).join('');
+  pushForm({type:'claim-new',title:'新增索赔',html:'<form id="claimForm"><div class="field-grid">'+inputs+
+    field('索赔日期（看板统计口径，可与处理日期一致）','date','','date')+
+    field('减免金额（元）','waiver','','number','step="0.01" min="0"')+
+    field('实际赔付（元）','actual','','number','step="0.01" min="0"')+
+    '<label>当前经办人（启用质量工程师）<select name="ownerId">'+engineerOptions(S.user.id,'')+'</select></label>'+
+    field('办理期限','deadline',C.dateAdd(C.dateNow(),7),'date')+
+    '<label>故障照片（可选）<input id="claimPhoto" type="file" accept="image/*"></label>'+
+    '</div><h3>责任分摊（可选，保存为草稿）</h3><p class="help">部门不重复，比例最多两位小数；草稿可先不分完，确认必须合计 100.00%，与详情同一算法。</p><div id="allocRowsNew">'+allocRowHTML({dept:'',ratio:''})+'</div><div class="action-row" style="margin:10px 0"><button type="button" class="work-btn" data-alloc-add="new">＋ 增加部门</button></div><div id="allocPreviewNew" class="panel"><p class="help">填写金额或比例后显示分摊预览。</p></div></form><p class="help">保留原22项字段；金额按元填写、最多两位小数，未知留空，不用 0 冒充。单号必须唯一，重复请直接办理原单。</p><p id="claimError" class="error"></p>',
+    save:async()=>{
+      const v=Object.fromEntries(new FormData($('#claimForm')));
+      const shares=allocRowsFrom('allocRowsNew');
+      if(shares.length)v.shares=shares;
+      const file=$('#claimPhoto')?.files[0];
+      if(file){const uploaded=await uploadFile(file);v.photo=uploaded.id}
+      await api('/api/claims',v);
+      S.forms=[];await refresh();toast('索赔已新增，已进入经办人待办');
+    }});
+}
+function applyTodoFilters(){
+  const tab=S.todoTab||'todo',next={q:$('#todoQuery')?.value||'',from:$('#todoFrom')?.value||'',to:$('#todoTo')?.value||''};
+  if(tab!=='claims')next.source=$('#todoSource')?.value||'';
+  if(tab==='claims')next.stage=$('#todoStage')?.value||'';
+  if(tab==='done')next.doneKind=$('#todoKind')?.value||'';
+  if(tab!=='done')next.overdue=$('#todoOverdue')?.value||'';
+  if(next.from&&next.to&&next.from>next.to){toast('开始日期不能晚于结束日期');return}
+  S.todoApplied=next;paintTodo();
+}
+document.addEventListener('input',ev=>{if(ev.target.tagName==='SELECT')return;
+  if(ev.target.closest('#allocForm')){clearTimeout(allocTimer);allocTimer=setTimeout(()=>refreshAllocPreview(),350);return}
+  if(ev.target.closest('#allocRowsNew')||(ev.target.closest('#claimForm')&&['amount','agreed','actual'].includes(ev.target.name))){clearTimeout(allocTimer);allocTimer=setTimeout(()=>refreshNewClaimPreview(),350);}
+});
+document.addEventListener('change',ev=>{
+  if(ev.target.closest('#allocForm')){clearTimeout(allocTimer);refreshAllocPreview();return}
+  if(ev.target.closest('#allocRowsNew')){clearTimeout(allocTimer);refreshNewClaimPreview();}
+});
+async function renderTodo(){
+  const token=++todoRequest;
+  $('#page').innerHTML=title('我的待办与进度','统一读取真实初步分析、复测、8D、SQE 任务与索赔整单待办；质量处置与索赔进度分开统计。')+'<section class="panel"><p class="help">正在读取真实待办…</p></section>';
+  if(!S.workbench){
+    try{
+      const data=await api('/api/workbench');
+      if(S.route!=='todo'||token!==todoRequest)return;
+      S.workbench=data;
+    }catch(e){
+      if(S.route==='todo'&&token===todoRequest)$('#page').innerHTML=title('我的待办与进度')+'<section class="panel"><p class="error">'+E(e.message)+'</p></section>';
+      return;
+    }
+  }
+  if(S.route!=='todo'||token!==todoRequest)return;
+  paintTodo();
+}
+function qualityProgressRows(){
+  const today=C.dateNow();
+  return (S.data.analyses||[]).filter(a=>!a.archived&&a.status==='active').map(a=>{
+    const tasks=(a.workflow?.tasks||[]).filter(t=>!t.archived&&!t.gridRoot&&['draft','returned','submitted'].includes(t.status));
+    const current=tasks[0]||null,stageId=current?.stage||a.stage||'D1';
+    return {id:a.id,faultId:a.faultId,title:a.title||a.faultId||'8D分析',stage:stageId+' '+(C.stages.find(s=>s.id===stageId)?.name||''),ownerName:current?(current.owner?person(current.owner).name:'待分派'):'质量工程师',next:!current?'阶段已齐，待确认与关单':current.status==='submitted'?'待质量工程师验收':current.status==='returned'?'已退回，待责任人修改':'责任人填写中',due:String(current?.due||'').slice(0,10),overdue:!!(current?.due&&current.status!=='submitted'&&String(current.due)<today)};
+  }).sort((a,b)=>String(a.due||'9999').localeCompare(String(b.due||'9999'))||String(a.title).localeCompare(String(b.title),'zh-CN'));
+}
+function paintTodo(){
+  const tab=S.todoTab||'todo',wb=S.workbench||{todo:[],done:[],counts:{},engineers:[]},f=S.todoApplied||{};
+  const q=String(f.q||'').trim().toLowerCase();
+  const text=row=>[row.title,row.refTitle,row.ownerName,row.stage,row.claimId,row.next].filter(Boolean).join(' ').toLowerCase();
+  const matchQ=row=>!q||text(row).includes(q);
+  const matchSource=row=>!f.source||row.source===f.source;
+  const matchOverdue=row=>!f.overdue||String(!!row.overdue)===(f.overdue==='是');
+  const matchKind=row=>!f.doneKind||(row.kind||'')===f.doneKind;
+  const dateKey=(row,kind)=>String((kind==='done'?row.doneAt:(row.due??row.state?.due))||'').slice(0,10);
+  const matchDate=(row,kind)=>{if(!f.from&&!f.to)return true;const day=dateKey(row,kind);return !!day&&(!f.from||day>=f.from)&&(!f.to||day<=f.to)};
+  const counts=wb.counts||{},claimCounts=counts.claims||{};
+  const stageOptions=['待处理','处理中','待结算','已完成'].map(stage=>'<option value="'+stage+'" '+(f.stage===stage?'selected':'')+'>'+stage+'</option>').join('');
+  const doneOptions=[['completed','已完成'],['transferred','已转出']].map(([key,label])=>'<option value="'+key+'" '+(f.doneKind===key?'selected':'')+'>'+label+'</option>').join('');
+  const sourceDisabled=tab==='claims',overdueDisabled=tab==='done';
+  let body='',total=0,missing=0,outside=0;
+  // 日期条件不满足的原因分开统计：真正没有日期 vs 有日期但不在所选范围，不能用一句话混称。
+  const splitDates=(base,rows,kind)=>{const dropped=base.filter(row=>!matchDate(row,kind));missing=dropped.filter(row=>!dateKey(row,kind)).length;outside=dropped.length-missing;};
+  if(tab==='todo'){
+    const base=(wb.todo||[]).filter(row=>matchSource(row)&&matchOverdue(row)&&matchQ(row));
+    const rows=base.filter(row=>matchDate(row,'todo'));
+    splitDates(base,rows,'todo');total=rows.length;
+    body='<section class="panel table-wrap" id="todoBody"><table><thead><tr><th>事项</th><th>来源</th><th>当前阶段／待办</th><th>期限</th><th>操作</th></tr></thead><tbody>'+(rows.map(row=>{
+      const open=row.source==='claim'?'data-open-claim="'+E(row.claimId)+'"':row.source==='preliminary'?'data-open-fault="'+E(row.faultId)+'"':'data-open-analysis="'+E(row.analysisId)+'" data-stage="'+E(row.stage||'follow')+'"'+(row.taskId?' data-task="'+E(row.taskId)+'"':'');
+      return '<tr><td><strong>'+E(row.title)+'</strong>'+(row.refTitle?'<small>'+E(row.refTitle)+'</small>':'')+(row.claimId?'<small>索赔 '+E(row.claimId)+'</small>':'')+'</td><td>'+E(TODO_SOURCE[row.source]||row.source)+'</td><td>'+E(row.stage||'—')+(row.kind&&row.kind!=='claim'?'<small>'+E(row.kind)+'</small>':'')+'</td><td>'+E(row.due||'未设期限')+(row.overdue?'<small>已逾期</small>':'')+'</td><td><button type="button" class="work-btn compact accent" '+open+'>'+E(row.action||'办理')+' →</button></td></tr>';
+    }).join('')||'<tr><td colspan="5">当前没有需要你处理的事项。</td></tr>')+'</tbody></table></section>';
+  }else if(tab==='done'){
+    const base=(wb.done||[]).filter(row=>matchSource(row)&&matchKind(row)&&matchQ(row));
+    const rows=base.filter(row=>matchDate(row,'done'));
+    splitDates(base,rows,'done');total=rows.length;
+    body='<section class="panel table-wrap" id="todoBody"><table><thead><tr><th>事项</th><th>来源</th><th>结果</th><th>时间</th><th>操作</th></tr></thead><tbody>'+(rows.map(row=>{
+      const open=row.source==='claim'?'data-open-claim="'+E(row.claimId)+'"':'data-open-analysis="'+E(row.analysisId)+'" data-stage="'+E(row.stage||'follow')+'"'+(row.taskId?' data-task="'+E(row.taskId)+'"':'');
+      return '<tr><td><strong>'+E(row.title)+'</strong>'+(row.refTitle?'<small>'+E(row.refTitle)+'</small>':'')+(row.claimId?'<small>索赔 '+E(row.claimId)+'</small>':'')+'</td><td>'+E(TODO_SOURCE[row.source]||row.source)+'</td><td>'+E(row.kind==='transferred'?'已转出给 '+(row.transferTo||row.ownerName||'—'):'已完成')+(row.kind==='transferred'&&row.stage?'<small>'+E(row.stage)+'</small>':'')+'</td><td>'+E(String(row.doneAt||'').slice(0,16).replace('T',' '))+'</td><td><button type="button" class="work-btn compact" '+open+'>只读查看 →</button></td></tr>';
+    }).join('')||'<tr><td colspan="5">暂无已处理或已转出的记录。</td></tr>')+'</tbody></table><p class="help">已转出记录在接收人办结后仍可回看，但不计入你的完成业绩；往返转办只保留一条当前待办。</p></section>';
+  }else{
+    const claims=(S.data.claims||[]);
+    const base=claims.filter(claim=>{const state=claim.state||{};const row={title:claim.id,refTitle:claim.customer,ownerName:state.ownerName,stage:state.stage||'',claimId:claim.id,due:state.due};return matchQ(row)&&(!f.stage||state.stage===f.stage)&&matchOverdue({overdue:state.overdue})});
+    const rows=base.filter(claim=>matchDate({due:claim.state?.due},'todo')).sort((a,b)=>{const order=['待处理','处理中','待结算','已完成'],ai=order.indexOf(a.state?.stage||''),bi=order.indexOf(b.state?.stage||'');return (ai<0?9:ai)-(bi<0?9:bi)||String(a.deadline||'9999').localeCompare(String(b.deadline||'9999'));});
+    splitDates(base,rows,'todo');total=rows.length;
+    const allQuality=qualityProgressRows(),qualityBase=allQuality.filter(row=>matchQ(row)),quality=qualityBase.filter(row=>matchDate(row,'todo'));
+    const qualityDropped=qualityBase.filter(row=>!matchDate(row,'todo')),qualityMissing=qualityDropped.filter(row=>!dateKey(row,'todo')).length,qualityOutside=qualityDropped.length-qualityMissing;
+    const qualityTable='<table><thead><tr><th>分析事项</th><th>当前阶段</th><th>当前办理人</th><th>下一步</th><th>期限</th></tr></thead><tbody>'+(quality.map(row=>'<tr><td><strong>'+E(row.title)+'</strong><small>'+E(row.faultId||'')+'</small></td><td>'+E(row.stage)+'</td><td>'+E(row.ownerName)+'</td><td>'+E(row.next)+'</td><td>'+E(row.due||'未设期限')+(row.overdue?'<small>已逾期</small>':'')+'</td></tr>').join('')||'<tr><td colspan="5">当前没有进行中的质量处置（8D）事项。</td></tr>')+'</tbody></table>';
+    const claimTable='<table><thead><tr><th>索赔单号</th><th>客户／不合格描述</th><th>办理阶段</th><th>经办人</th><th>期限</th><th>责任分摊</th><th>索赔金额</th><th>实际赔付</th><th>操作</th></tr></thead><tbody>'+(rows.map(claim=>{const state=claim.state||{};return '<tr><td>'+E(claim.id)+'</td><td>'+E(claim.customer||'—')+'<small>'+E(claim.issue||'')+'</small></td><td><span class="tag '+(state.done?'good':state.overdue?'danger':'')+'">'+E(state.stageLabel||'未开始')+'</span></td><td>'+E(state.ownerName||'待分配')+'</td><td>'+E(state.due||'期限待补充')+(state.overdue?'<small>已逾期</small>':'')+'</td><td class="text-wrap">'+E(state.sharesLabel||'未分摊')+'<small>'+(state.sharesConfirmed?'已确认':'未确认')+'</small></td><td>'+(claim.amountCents==null?'待补充':money(claim.amountCents/100))+'</td><td>'+(claim.actualCents==null?'未知':money(claim.actualCents/100))+'</td><td><button type="button" class="work-btn compact accent" data-open-claim="'+E(claim.id)+'">查看办理 →</button></td></tr>'}).join('')||'<tr><td colspan="9">暂无可见的索赔记录。</td></tr>')+'</tbody></table>';
+    body='<div id="todoBody"><section class="panel"><h3>质量处置（8D）· 进行中 '+quality.length+' 项</h3><p class="help">按8D真实任务读取当前阶段、办理人与下一步，与索赔结清分开，不把8D关单当作索赔已完成。</p><div class="table-wrap">'+qualityTable+'</div>'+((qualityMissing||qualityOutside)?'<p class="help">另有 '+(qualityMissing+qualityOutside)+' 项不符合日期条件（'+[qualityMissing?qualityMissing+' 项未填写期限':'',qualityOutside?qualityOutside+' 项日期不在所选范围':''].filter(Boolean).join('，')+'），未计入当前结果。</p>':'')+'</section><section class="panel"><h3>索赔整单 · 在办 '+((claimCounts['待处理']||0)+(claimCounts['处理中']||0)+(claimCounts['待结算']||0))+' 单／已完成 '+(claimCounts['已完成']||0)+' 单</h3><p class="help">索赔进度按整单办理阶段统计，与8D关闭分开，不把8D关单当作索赔结清。已完成单显示结算后的实际赔付。</p><div class="table-wrap">'+claimTable+'</div></section></div>';
+  }
+  const tabs=[['todo','待我处理 ('+(counts.todo??0)+')'],['done','我已处理·已转出 ('+(counts.done??0)+')'],['claims','案件进度 ('+((claimCounts['待处理']||0)+(claimCounts['处理中']||0)+(claimCounts['待结算']||0))+' 在办)']];
+  const hints=[sourceDisabled?'案件进度按索赔单与8D事项展示，来源条件不适用，已禁用。':'',overdueDisabled?'已处理／已转出记录不判定逾期，逾期条件已禁用。':'',(missing||outside)?'另有 '+(missing+outside)+' 条不符合日期条件（'+[missing?missing+' 条未填写'+(tab==='done'?'完成时间':'办理期限'):'',outside?outside+' 条日期不在所选范围':''].filter(Boolean).join('，')+'），未计入当前结果。':'','筛选点“确定”后生效，“重置”恢复全部条件。'].filter(Boolean).join(' ');
+  $('#page').innerHTML=title('我的待办与进度','统一读取真实初步分析、复测、8D、SQE 任务与索赔整单待办；质量处置与索赔进度分开统计。')+
+    '<div class="kpis">'+[['待我处理',counts.todo??0],['已逾期',counts.overdue??0],['已处理／已转出',counts.done??0],['索赔在办',(claimCounts['待处理']||0)+(claimCounts['处理中']||0)+(claimCounts['待结算']||0)],['索赔已完成',claimCounts['已完成']||0]].map(([label,value])=>'<div class="kpi"><small>'+label+'</small><b>'+value+'</b></div>').join('')+'</div>'+
+    '<div class="pill-tabs">'+tabs.map(([key,label])=>'<button type="button" data-todo-tab="'+key+'" class="'+(tab===key?'active':'')+'">'+E(label)+'</button>').join('')+'</div>'+
+    '<form class="panel review-list-filters" id="todoFilters"><div class="review-filter-rows">'+
+      '<div class="review-filter-row"><span>关键字</span><div><input id="todoQuery" type="search" value="'+E(f.q||'')+'" placeholder="事项、编号、经办人" aria-label="关键字"></div></div>'+
+      '<div class="review-filter-row"><span>来源</span><div><select id="todoSource" aria-label="来源" '+(sourceDisabled?'disabled':'')+'><option value="">全部来源</option>'+[['analysis','8D任务'],['preliminary','初步分析'],['claim','索赔']].map(([key,label])=>'<option value="'+key+'" '+(f.source===key?'selected':'')+'>'+label+'</option>').join('')+'</select></div></div>'+
+      (tab==='claims'?'<div class="review-filter-row"><span>办理阶段</span><div><select id="todoStage" aria-label="办理阶段"><option value="">全部阶段</option>'+stageOptions+'</select></div></div>':'')+
+      (tab==='done'?'<div class="review-filter-row"><span>结果</span><div><select id="todoKind" aria-label="结果"><option value="">全部结果</option>'+doneOptions+'</select></div></div>':'')+
+      '<div class="review-filter-row"><span>起止日期</span><div><input id="todoFrom" type="date" value="'+E(f.from||'')+'" aria-label="开始日期"><span>至</span><input id="todoTo" type="date" value="'+E(f.to||'')+'" aria-label="结束日期"></div></div>'+
+      '<div class="review-filter-row"><span>只看逾期</span><div><select id="todoOverdue" aria-label="只看逾期" '+(overdueDisabled?'disabled':'')+'><option value="">不限</option><option value="是" '+(f.overdue==='是'?'selected':'')+'>是</option><option value="否" '+(f.overdue==='否'?'selected':'')+'>否</option></select></div></div>'+
+    '</div><div class="review-filter-actions"><button type="button" class="work-btn accent" data-todo-apply>确定</button><button type="button" class="work-btn" data-todo-reset>重置</button><span class="review-filter-count" role="status">共 '+total+' 条</span></div></form>'+
+    '<p class="help" id="todoHint">'+E(hints)+'</p>'+body;
+}
 function preliminaryEditor(faultId,id){const p=id?S.data.preliminary.find(p=>p.id===id):null;const f={type:'preliminary',faultId,title:p?'编辑我的初步分析':'填写初步失效分析',files:clone(p?.files||[]),html:'<form id="preliminaryForm">'+field('故障现象','phenomenon',p?.phenomenon||'','textarea')+field('检查过程／分析记录','process',p?.process||'','textarea')+field('初步分析结论','conclusion',p?.conclusion||'','textarea')+'<label>记录状态<select name="status"><option value="draft" '+(p?.status!=='submitted'?'selected':'')+'>保存草稿</option><option value="submitted" '+(p?.status==='submitted'?'selected':'')+'>提交初步结论</option></select></label><label>上传分析照片<input type="file" id="preliminaryUpload" accept="image/*" multiple></label><div id="preliminaryPhotos">'+photos(p?.files||[])+'</div></form><p class="help">初步结论供8D参考，不能替代D4根因验证。修改后保留原版本和照片。</p>',save:async()=>{const body={...Object.fromEntries(new FormData($('#preliminaryForm'))),files:f.files};if(p){body.id=p.id;body.version=p.version}await api('/api/faults/'+encodeURIComponent(faultId)+'/preliminary',body);S.forms=[];await refresh();faultView(faultId);toast('初步分析已保存')}};pushForm(f)}
 function assignPreliminary(faultId){pushForm({type:'assign-preliminary',title:'分派初步失效分析',html:'<form id="assignPreliminaryForm"><label>失效分析人员<select name="userId">'+userOpts('',false)+'</select></label>'+field('完成期限','due','','date')+'</form>',save:async()=>{await api('/api/faults/'+encodeURIComponent(faultId)+'/assign',Object.fromEntries(new FormData($('#assignPreliminaryForm'))));await refresh();popForm();toast('初步分析任务已分派')}})}
-function claimView(id){const r=S.data.claims.find(r=>r.id===id);pushForm({type:'claim',title:'索赔详情 · '+id,html:'<div class="source-info">'+Object.entries({...r,version:undefined}).filter(([k,v])=>v!==undefined&&!['history','id'].includes(k)&&typeof v!=='object').map(([k,v])=>'<div><span>'+E(claimFieldNames[k]||k)+'</span><p>'+E(v)+'</p></div>').join('')+'</div><p class="text-wrap">'+E(r.issue||'')+'</p>'+(r.photo?'<h3>故障照片</h3>'+(typeof r.photo==='object'?photos([r.photo]):'<button class="work-btn" data-wf-download="'+E(r.photo)+'">查看照片</button>'):'')+(can('imports.manage')?'<form id="claimLinkForm"><label>明确关联的报故单号（可不关联）<select name="faultId"><option value="">未关联报故</option>'+S.data.faults.map(f=>'<option value="'+E(f.id)+'" '+(r.faultId===f.id?'selected':'')+'>'+E(f.id)+' · '+E(f.product)+'</option>').join('')+'</select></label></form>':'')+(manage()?'<button class="work-btn" data-claim-progress="'+E(id)+'">更新处理进度</button>':'')+historyHTML(r.history||[]),save:can('imports.manage')?async()=>{await api('/api/claims/'+encodeURIComponent(id),{version:r.version,faultId:$('#claimLinkForm').elements.faultId.value},'PATCH');await refresh();popForm();toast('索赔关联已更新，金额未改变')}:null})}
+function claimView(id){const r=S.data.claims.find(r=>r.id===id);if(!r)return;const st=r.state||{},canWrite=claimCanManage(),mine=st.ownerId===S.user.id,done=!!st.done;const actions=[];if(canWrite&&mine&&!done){if(!st.stage||st.stage==='待处理')actions.push('<button class="work-btn accent" data-claim-start="'+E(id)+'">开始办理</button>');if(st.stage==='处理中')actions.push('<button class="work-btn accent" data-claim-processed="'+E(id)+'">提交处理结果</button>');if(st.stage==='待结算')actions.push('<button class="work-btn accent" data-claim-complete="'+E(id)+'">确认结束</button>');}if(canWrite&&!done&&(mine||!st.ownerId||S.user.role==='admin'))actions.push('<button class="work-btn" data-claim-transfer="'+E(id)+'">'+(st.ownerId?'整单转办':'指定经办人')+'</button>');if(canWrite&&!done&&(mine||S.user.role==='admin'))actions.push('<button class="work-btn" data-claim-shares="'+E(id)+'">维护责任分摊</button>');if(!st.stage&&manage())actions.push('<button class="work-btn" data-claim-progress="'+E(id)+'">旧版更新处理进度</button>');const alloc=st.allocations||{};const allocTable=['amount','agreed','actual'].map(key=>{const item=alloc[key]||{};const rows=item.allocation?.rows||[];return '<tr><td>'+E(item.label||key)+'</td><td>'+(item.amountCents==null?'待补充':money(item.amount))+'</td><td>'+(rows.length?rows.map(row=>E(row.dept)+' '+money(row.cents/100)).join('<br>'):'无已确认分摊')+'</td><td>'+(item.allocation?.unallocated?money(item.allocation.unallocated/100)+' 未分配':'—')+'</td></tr>'}).join('');pushForm({type:'claim',title:'索赔详情 · '+id,html:'<div class="source-info">'+Object.entries({...r,version:undefined,state:undefined}).filter(([k,v])=>v!==undefined&&!['history','id'].includes(k)&&typeof v!=='object').map(([k,v])=>'<div><span>'+E(claimFieldNames[k]||claimExtraNames[k]||k)+'</span><p>'+E(v)+'</p></div>').join('')+'</div><p class="text-wrap">'+E(r.issue||'')+'</p>'+(r.photo?'<h3>故障照片</h3>'+(typeof r.photo==='object'?photos([r.photo]):'<button class="work-btn" data-wf-download="'+E(r.photo)+'">查看照片</button>'):'')+'<h3>办理状态</h3><div class="source-info">'+[['当前经办人',st.ownerName||'待分配'],['办理阶段',st.stageLabel||'未开始'],['办理期限',st.due||'期限待补充'],['是否逾期',st.overdue?'是':'否'],['责任分摊',(st.sharesLabel||'未分摊')+'（'+(st.sharesConfirmed?'已确认':'未确认')+'）'],['上次确认分摊',st.confirmedLabel||'未确认'],['实际赔付',r.actualCents==null?'未知（未结算）':'¥'+(r.actualCents/100).toFixed(2)],['结算结论',st.settlement?(st.settlement.mode+(st.settlement.amount==null?'':' '+money(st.settlement.amount)+' 元')+'：'+E(st.settlement.note||'')):'未结算'],['OA处理状态',r.status||'未填']].map(([k,v])=>'<div><span>'+E(k)+'</span><p>'+E(v)+'</p></div>').join('')+'</div>'+(st.legacy?'<p class="help">历史单据未登记经办人或分摊基线，按原 OA 数据展示；需要办理时请先指定经办人，系统不会自动归给当前账号，也不会从草稿推断旧确认值。</p>':'')+(actions.length?'<h3>可执行操作</h3><div class="action-row">'+actions.join(' ')+'</div>':'')+'<h3>责任分摊与金额</h3><div class="table-wrap"><table><thead><tr><th>金额口径</th><th>金额（元）</th><th>按已确认比例分摊</th><th>差额</th></tr></thead><tbody>'+allocTable+'</tbody></table></div><p class="help">提出、承认与实际赔付按同一比例分摊；金额整数分，余分归占比最大部门；同占比按部门名称固定顺序（与录入行序无关）。未知金额不按 0 分摊，结算后以结算金额为有效实际赔付。</p>'+(can('imports.manage')?'<form id="claimLinkForm"><label>明确关联的报故单号（可不关联）<select name="faultId"><option value="">未关联报故</option>'+S.data.faults.map(f=>'<option value="'+E(f.id)+'" '+(r.faultId===f.id?'selected':'')+'>'+E(f.id)+' · '+E(f.product)+'</option>').join('')+'</select></label></form>':'')+historyHTML(r.history||[]),save:can('imports.manage')?async()=>{await api('/api/claims/'+encodeURIComponent(id),{version:r.version,faultId:$('#claimLinkForm').elements.faultId.value},'PATCH');await refresh();popForm();toast('索赔关联已更新，金额未改变')}:null})}
 function transferEditor(taskId){const t=S.analysis.workflow.tasks.find(t=>t.id===taskId);pushForm({type:'transfer',title:'转交任务 · '+t.title,html:'<form id="transferForm"><label>新负责人<select name="to">'+userOpts('')+'</select></label>'+field('转交原因及已有工作说明','reason','','textarea')+'</form><p class="help">原期限 '+E(t.due||'未设期限')+' 保留。新负责人自动加入D1，原记录和照片继续保留，部门指标归新负责人部门。</p>',save:async()=>{const v=Object.fromEntries(new FormData($('#transferForm')));await command('transfer',{taskId,...v});await refresh();S.forms=[];renderDialogs();toast('任务已转交，D1团队已同步')}})}
 function scoreTransfer(taskId){const t=S.analysis.workflow.tasks.find(t=>t.id===taskId),ids=[...new Set([t.owner,...(t.transfers||[]).flatMap(t=>[t.from,t.to])])],total=W.taskPoints(t);pushForm({type:'score-transfer',title:'评定转交任务贡献',html:'<p>本任务最终积分：<b>'+Number(total).toFixed(4)+'</b></p><p class="help">按双方实际工作分配，合计须等于本任务积分，不能重复计分。</p><form id="transferScoreForm">'+ids.map(id=>field(person(id).name+' · '+person(id).dept,'score-'+id,t.transferEvaluation?.allocations?.find(a=>a.personId===id)?.points??'','number','min="0" step="0.0001"')).join('')+field('评定理由与贡献依据','reason',t.transferEvaluation?.reason||'','textarea')+'</form>',save:async()=>{const form=$('#transferScoreForm'),allocations=ids.map(id=>({personId:id,points:Number(form.elements['score-'+id].value||0)}));await command('score-transfer',{taskId,allocations,reason:form.elements.reason.value});await refresh();popForm();toast('转交贡献已确认')}})}
 function changePassword(){pushForm({type:'password',title:S.user.mustChangePassword?'请先修改临时密码':'修改我的密码',html:'<form id="passwordForm">'+field('当前密码','currentPassword','','password','required autocomplete="current-password"')+field('新密码（至少10位）','password','','password','required minlength="10" autocomplete="new-password"')+'</form>',save:async()=>{await api('/api/change-password',Object.fromEntries(new FormData($('#passwordForm'))));S.analysis=null;S.forms=[];S.csrf='';toast('密码已修改，请重新登录');await boot()}})}
@@ -178,6 +395,20 @@ document.addEventListener('click',ev=>{const el=ev.target.closest('button,a[data
  if(d.openFault){faultView(d.openFault);return}
  if(d.startAnalysis){const item=itemData(await api('/api/analyses',{faultId:d.startAnalysis,mode:'nine-grid'}));S.forms=[];await refresh();await openAnalysis(item.id,'D1');return}
  if(d.claimProgress){claimProgress(d.claimProgress);return}if(d.openClaim){claimView(d.openClaim);return}
+ if(d.claimAct){claimView(d.claimAct);return}
+ if(el.hasAttribute('data-claim-new')){newClaim();return}
+ if(d.claimStart){if(!confirm('开始办理该索赔？'))return;await claimCommand(d.claimStart,{action:'start'});return}
+ if(d.claimProcessed){claimProcessForm(d.claimProcessed);return}
+ if(d.claimComplete){claimCompleteForm(d.claimComplete);return}
+ if(d.claimTransfer){claimTransferForm(d.claimTransfer);return}
+ if(d.claimShares){claimSharesForm(d.claimShares);return}
+ if(el.hasAttribute('data-shares-save')){await saveClaimShares(false);return}
+ if(el.hasAttribute('data-shares-confirm')){await saveClaimShares(true);return}
+ if(el.hasAttribute('data-alloc-add')){const newForm=el.getAttribute('data-alloc-add')==='new',boxId=newForm?'allocRowsNew':'allocRows';document.getElementById(boxId).insertAdjacentHTML('beforeend',allocRowHTML({dept:'',ratio:''}));await (newForm?refreshNewClaimPreview():refreshAllocPreview());return}
+ if(el.hasAttribute('data-alloc-remove')){const row=el.closest('[data-alloc-row]'),box=row.parentElement,rows=box.querySelectorAll('[data-alloc-row]');if(rows.length<=1){row.querySelector('[data-alloc-dept]').value='';row.querySelector('[data-alloc-ratio]').value=''}else row.remove();await (box.id==='allocRowsNew'?refreshNewClaimPreview():refreshAllocPreview());return}
+ if(d.todoTab){S.todoTab=d.todoTab;S.todoApplied={q:S.todoApplied?.q||''};paintTodo();return}
+ if(el.hasAttribute('data-todo-apply')){applyTodoFilters();return}
+ if(el.hasAttribute('data-todo-reset')){S.todoApplied={};paintTodo();return}
  if(d.userEdit){userEditor(d.userEdit);return}
  if(d.userReset){pushForm({type:'reset',title:'重置 '+person(d.userReset).name+' 的密码',html:'<form id="resetForm">'+field('新临时密码（至少10位）','password','','password','minlength="10" autocomplete="new-password"')+'</form><p class="help">重置后该账号需重新登录并修改临时密码。</p>',save:async()=>{await api('/api/users/'+encodeURIComponent(d.userReset)+'/reset-password',Object.fromEntries(new FormData($('#resetForm'))));await refresh();popForm();toast('密码已重置')}});return}
  if(d.stageNav){S.forms=[];S.stage=d.stageNav;renderDialogs();return}
@@ -223,7 +454,7 @@ document.addEventListener('click',ev=>{const el=ev.target.closest('button,a[data
  if(a==='import-remap'){const mapping=Object.fromEntries($$('[data-import-field]').map(e=>[e.dataset.importField,e.value]));await previewImport({mapping,sheet:$('#importSheet').value});return}
  if(a==='import-commit'){const result=await api('/api/imports/'+encodeURIComponent(S.importPreview.batchId)+'/commit',{updateExisting:$('#importUpdate').checked});S.importPreview=null;await refresh();pushForm({type:'import-result',title:'导入结果',html:'<pre class="code">'+E(JSON.stringify(result,null,2))+'</pre>'});return}
  if(a==='import-errors'){downloadText(csv([['行号','错误'],...(S.importPreview.errors||[]).map(e=>[e.rowNumber,e.message])]),'OA导入错误说明.csv');return}
- if(a==='export-claims'){const rows=recordLists.filter('claims',queryRows(S.data.claims,['id','material','product','model','customer','issue','faultId']),S.data);downloadText(csv(QualityRecords.claimExport(rows)),'索赔清单-'+C.dateNow()+'.csv');return}
+ if(a==='export-claims'){const rows=recordLists.filter('claims',queryRows(S.data.claims,['id','material','product','model','customer','issue','faultId',x=>x.state?.ownerName,x=>x.state?.stageLabel]),S.data);downloadText(csv(QualityRecords.claimExport(rows,{state:true})),'索赔清单-'+C.dateNow()+'.csv');return}
  if(a==='migration-preview'){const f=$('#migrationFile').files[0];if(!f)throw Error('请选择迁移JSON');if(f.size>17*1024*1024)throw Error('迁移JSON不能超过17MB');const data=JSON.parse(await f.text()),result=await api('/api/system/actions',{action:'migrate-preview',bundle:data});pushForm({type:'migration',title:'迁移预览（尚未写入）',html:'<pre class="code">'+E(JSON.stringify(result,null,2))+'</pre>'+migrationPeopleHTML(data)+'<p class="help">确认后仅新增未存在记录，不覆盖已有报告。原人员需要由管理员核对。</p>',save:async()=>{await api('/api/system/actions',{action:'migrate-commit',id:result.id,peopleMap:Object.fromEntries($$('[data-legacy-person]').filter(e=>e.value).map(e=>[e.dataset.legacyPerson,e.value]))});S.forms=[];await refresh();toast('迁移完成')}});return}
  });});
 document.addEventListener('compositionstart',e=>{if(e.target.id==='pageSearch')S.searchComposing=true;});
@@ -283,7 +514,7 @@ groupAdmin=window.GroupAdmin({S,E,$,api,pushForm,refresh,toast});
  const render43=render;
  render=function(){
    if(!S.data)return;
-   if(recordUserId!==S.user.id){recordLists.resetAll();S.board=null;S.reviewBoards=null;S.importContext=null;S.importSource=null;S.importPreview=null;S.metricFilter=null;recordUserId=S.user.id;}
+   if(recordUserId!==S.user.id){recordLists.resetAll();S.board=null;S.reviewBoards=null;S.importContext=null;S.importSource=null;S.importPreview=null;S.metricFilter=null;S.workbench=null;S.todoApplied={};S.todoTab='todo';recordUserId=S.user.id;}
    if(!routeAllowed(S.route))S.route=S.user.role==='freeze-clerk'&&routeAllowed('work')?'work':routeAllowed('overview')?'overview':'guide';
    render43();
    document.querySelectorAll('[data-route]').forEach(button=>{if(!routeAllowed(button.dataset.route))button.remove();});

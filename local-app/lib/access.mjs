@@ -15,7 +15,8 @@ export function scopedData(store,user){
  const permitted=analyses.filter(related),faultIds=new Set(permitted.map(a=>a.faultId));
  let selectedFaults=faults.filter(f=>isFreeze(user)?faultIds.has(f.id):faultIds.has(f.id)||direct(f)||preliminaryIds.has(f.id));
  const ids=new Set(selectedFaults.map(f=>f.id));
- const selectedClaims=isFreeze(user)?[]:claims.filter(c=>direct(c)||[c.faultId,...array(c.faultIds)].some(id=>ids.has(id)));
+ const transferred=r=>(r.transfers||[]).some(t=>t&&t.from===user.id);
+ const selectedClaims=isFreeze(user)?[]:claims.filter(c=>direct(c)||c.ownerId===user.id||transferred(c)||[c.faultId,...array(c.faultIds)].some(id=>ids.has(id)));
  return {analyses:permitted,faults:selectedFaults,claims:selectedClaims,shipments:store.list('shipments').filter(direct),products:store.list('products').filter(p=>selectedFaults.some(f=>f.material===p.material)),global:false};
 }
 export function requireRecord(store,user,kind,id){
@@ -26,7 +27,9 @@ export function requireRecord(store,user,kind,id){
 export function canReadFile(store,user,id){
  if(user.groupId){if(!hasPermission(user,'files.view'))return false;}else if(globalView(user))return true;
  const file=store.get('files',id);if(file?.uploadedBy===user.id)return true;
+ // 索赔故障照片：本账号可见的索赔单即可读，不扩大部门可见范围。
  const v=scopedData(store,user),allowedFaults=new Set(v.faults.map(f=>f.id));
+ if(!isReader(user)&&v.claims.some(claim=>claim.photo===id||claim.photo?.id===id))return true;
  const related=[...v.analyses.filter(a=>!isReader(user)||a.status==='closed'),...(!isReader(user)?[...v.faults,...v.claims]:[]),...store.list('preliminary').filter(p=>!isReader(user)&&allowedFaults.has(p.faultId)),...store.list('archive').filter(a=>v.analyses.some(i=>i.id===a.analysisId))];
  const walk=x=>{if(!x||typeof x!=='object')return false;if(x.id===id&&('type'in x||'size'in x||'name'in x))return true;return Object.values(x).some(v=>Array.isArray(v)?v.some(walk):typeof v==='object'&&walk(v));};
  return related.some(walk);

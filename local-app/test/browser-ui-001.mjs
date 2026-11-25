@@ -71,7 +71,8 @@ try {
   }
   await login('admin');
   check('管理员真实会话加载',await run(()=>window.QualityLocal.state.user.role==='admin'));
-  check('五个顶部模块',await run(()=>document.querySelectorAll('.review-nav button').length===5));
+  // REQ-002-LIVE-001 新增独立主导航“我的待办与进度”，顶部模块由5个增加到6个。
+  check('六个顶部模块（新增我的待办与进度）',await run(()=>document.querySelectorAll('.review-nav button').length===6));
   check('白色卡片及深红品牌',await run(()=>getComputedStyle(document.querySelector('.v4-board-filter')).backgroundColor==='rgb(255, 255, 255)'&&getComputedStyle(document.querySelector('.review-nav [aria-current]')).color==='rgb(166, 40, 53)'));
   check('报故看板七项数量指标，索赔指标独立',await run(()=>document.querySelectorAll('.v4-kpis .kpi').length===7));
   check('新图表且无离线数据注入',await run(()=>!!document.querySelector('.review-line-chart')&&!!document.querySelector('.review-donut')&&!document.getElementById('preview-fixtures')));
@@ -135,7 +136,8 @@ try {
   check('报告库仍能预览PDF',await run(()=>!!document.querySelector('[data-open-pdf]')));
   await route('claims');
   check('原索赔详情与导出保留',await run(()=>!!document.querySelector('[data-open-claim]')&&!!document.querySelector('[data-action=export-claims]')));
-  check('索赔表恰为22个确认字段',await run(()=>document.querySelectorAll('.review-claims-table th').length===22));
+  // 原22个OA字段保持在前且顺序不变，其后追加经办人/阶段/期限/分摊/确认/逾期与操作列。
+  check('索赔表保留原22个字段并追加办理状态列',await run(()=>{const heads=[...document.querySelectorAll('.review-claims-table th')].map(th=>th.textContent);return heads.length===30&&heads[0]==='处理日期'&&heads[21]==='备注'&&heads[22]==='当前经办人'&&heads[26]==='实际赔付'&&heads[29]==='操作';}));
   await capture('08-真实索赔记录');
   await click('[data-expand-filters]');
   check('索赔高级筛选展开',await run(()=>!document.querySelector('[data-extra-filters]').hidden));
@@ -217,5 +219,4 @@ try {
   await fs.rm(data,{recursive:true,force:true,maxRetries:3});
   await fs.rm(profile,{recursive:true,force:true,maxRetries:3}).catch(()=>{});
 }
-
 
