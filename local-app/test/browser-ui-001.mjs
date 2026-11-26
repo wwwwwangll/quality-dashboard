@@ -109,6 +109,8 @@ try {
   }
   await route('faults');
   check('所有报故列表仍可访问',await run(()=>document.querySelectorAll('#page tbody tr').length===window.QualityLocal.state.data.faults.length));
+  check('投诉台账列出11项台账信息',await run(()=>{const heads=[...document.querySelectorAll('#page thead th')].map(th=>th.textContent.trim());return heads.length===11&&heads.indexOf('解决措施')===3&&heads.indexOf('复测')===4&&heads.indexOf('初步分析')===5&&heads.indexOf('原因分析／处置路径')===6&&heads.indexOf('责任部门')===7&&heads.indexOf('关联8D')===8&&heads.indexOf('办理人／当前进度')===9;}));
+  check('投诉台账每行11个单元格并保留查看投诉入口',await run(()=>{const row=document.querySelector('#page tbody tr');return !!row&&row.children.length===11&&!!row.querySelector('[data-open-fault]');}));
   await capture('02-真实报故列表');
   await run(()=>{const form=document.querySelector('[data-list-filter=faults]');form.elements.customer.selectedIndex=1;form.requestSubmit();});
   await until(()=>run(()=>document.querySelectorAll('#page tbody tr').length<144),'fault customer filter');

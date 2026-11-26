@@ -33,6 +33,8 @@ workflowSource = workflowSource.replace(
       } else if (points === null) row.pending += 1; else row.base += points;`
 );
 const STAGES = ['D1','D2','D3','D4','D5','D6','D7','D8'];
+// 投诉台账「复测」列：由失效分析人员在初步分析里填写
+const RETESTS = ['待复测','复测中','已复现','未复现','不通过'];
 const clone = x => JSON.parse(JSON.stringify(x));
 const str = x => String(x ?? '').trim();
 const unsafe = new Set(['__proto__','prototype','constructor']);
@@ -184,9 +186,12 @@ export function createWorkflowService({store,fileRoot,onClosed=async()=>{},clock
     checkPermission(user,'preliminary.write');const previous=body.id?store.get('preliminary',body.id):null;
     if(body.id){ensure(previous&&previous.faultId===id,'初步分析记录不存在',404);ensure(previous.authorId===user.id,'只能修改自己的分析记录',403);requireVersion(previous,body.version);}
     const status=body.remove?'archived':body.status||'draft';ensure(['draft','submitted','archived'].includes(status),'初步分析状态无效');
-    const record={...(previous||{}),id:previous?.id||randomUUID(),faultId:id,authorId:user.id,authorName:user.name,department:user.dept||'',phenomenon:str(body.phenomenon??previous?.phenomenon),process:str(body.process??previous?.process),conclusion:str(body.conclusion??previous?.conclusion),files:body.files?files(body.files,user):previous?.files||[],status,createdAt:previous?.createdAt||now.toISOString(),updatedAt:now.toISOString(),history:[...(previous?.history||[])]};
+    const retest=body.retest===undefined?(previous?.retest||''):str(body.retest);
+    ensure(!retest||RETESTS.includes(retest),'复测结论无效');
+    const retestNote=body.retestNote===undefined?(previous?.retestNote||''):str(body.retestNote);
+    const record={...(previous||{}),id:previous?.id||randomUUID(),faultId:id,authorId:user.id,authorName:user.name,department:user.dept||'',phenomenon:str(body.phenomenon??previous?.phenomenon),process:str(body.process??previous?.process),conclusion:str(body.conclusion??previous?.conclusion),retest,retestNote,files:body.files?files(body.files,user):previous?.files||[],status,createdAt:previous?.createdAt||now.toISOString(),updatedAt:now.toISOString(),history:[...(previous?.history||[])]};
     if(status==='submitted')ensure(record.phenomenon&&record.process&&record.conclusion,'请填写现象、检查过程和初步结论');
-    if(previous)record.history.push({version:previous.version,at:now.toISOString(),by:user.id,phenomenon:previous.phenomenon,process:previous.process,conclusion:previous.conclusion,files:previous.files,status:previous.status});
+    if(previous)record.history.push({version:previous.version,at:now.toISOString(),by:user.id,phenomenon:previous.phenomenon,process:previous.process,conclusion:previous.conclusion,retest:previous.retest||'',retestNote:previous.retestNote||'',files:previous.files,status:previous.status});
     if(status==='submitted')record.submittedAt=now.toISOString();
     const saved=store.put('preliminary',record.id,record,{expectedVersion:previous?.version,actor:user.id,event:'保存投诉初步分析'});
     const assignment=store.get('preliminaryAssignments',id);if(assignment?.userId===user.id&&status==='submitted')store.put('preliminaryAssignments',id,{...assignment,status:'completed',completedAt:now.toISOString(),recordId:record.id,completedDept:user.dept||'未设置部门'},{expectedVersion:assignment.version,actor:user.id,event:'完成初步分析任务'});

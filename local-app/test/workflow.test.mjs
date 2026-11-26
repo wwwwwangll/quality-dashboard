@@ -54,6 +54,16 @@ test('失效分析可主动填写、本人改版；8D保留发布快照',()=>wit
   await expectError(f.api('preliminary',{id:p.id,version:p.version,conclusion:'旧版本覆盖'},f.fault.id,'fa'),/刷新/,409);
 }));
 
+test('初步分析的复测结论写入记录并校验值域，供投诉台账直接读取',()=>withFixture(async f=>{
+  const p=await f.api('preliminary',{phenomenon:'黑屏',process:'低温复测',conclusion:'疑似上电时序',retest:'未复现',retestNote:'常温与-20℃各测10台均未复现',status:'submitted'},f.fault.id,'fa');
+  assert.equal(p.retest,'未复现');assert.equal(p.retestNote,'常温与-20℃各测10台均未复现');
+  await expectError(f.api('preliminary',{id:p.id,version:p.version,retest:'已解决'},f.fault.id,'fa'),/复测结论无效/,400);
+  const kept=await f.api('preliminary',{id:p.id,version:p.version,conclusion:'疑似复位释放提前'},f.fault.id,'fa');
+  assert.equal(kept.retest,'未复现');assert.equal(kept.retestNote,'常温与-20℃各测10台均未复现');
+  assert.equal(kept.history[0].retest,'未复现');
+  const cleared=await f.api('preliminary',{id:p.id,version:kept.version,retest:'',retestNote:''},f.fault.id,'fa');
+  assert.equal(cleared.retest,'');assert.equal(cleared.retestNote,'');
+}));
 test('质量工程师分派初步分析且发布后自动完成；其他FA仍可补充',()=>withFixture(async f=>{
   await expectError(f.api('assign',{userId:'fa',due:'2026-10-30'},f.fault.id,'worker'),/权限/,403);
   const a=await f.api('assign',{userId:'fa',due:'2026-10-30'},f.fault.id);assert.equal(a.status,'assigned');
