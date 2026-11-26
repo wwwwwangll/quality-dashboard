@@ -213,13 +213,16 @@ export function createWorkflowService({store,fileRoot,onClosed=async()=>{},clock
       return {department,total:tasks.length,onTime,lateCompleted,pendingReview,overdueOpen,backlog,rate:tasks.length?Math.round(onTime/tasks.length*10000)/100:null,tasks};
     });return {...range,departments,tasks:window,backlog:all.filter(t=>dueInstant(t.due)<start&&!t.completed)};
   }
+  // 审核待办需要知道"到底有哪些已提交节点"，否则入口只能打开维度树，落进未提交的草稿节点。
+  // 只作为增量可选字段 reviewNodeIds 返回，不改动任何既有字段。
+  function submittedGridNodes(item,t){const d=item.nineGrid?.dimensions.find(d=>d.taskId===t.id),ids=[];const walk=nodes=>{for(const n of nodes||[]){if(n.review==='submitted')ids.push(n.id);walk(n.children);}};if(d)walk(d.nodes);return ids;}
   function GSubmitted(item,t){const d=item.nineGrid?.dimensions.find(d=>d.taskId===t.id);const any=nodes=>nodes.some(n=>n.review==='submitted'||any(n.children||[]));return d&&any(d.nodes);}
   function queues(user,C,W,now) {
     const rows=[],manager=isManager(user);for(const item of scopedData(store,user).analyses){if(item.status!=='active'||item.archived)continue;W.ensure(item);const current=STAGES.find(id=>!W.stageComplete(item,id))||'D8',index=STAGES.indexOf(current);
       for(const t of item.workflow.tasks.filter(t=>W.taskEnabled(item,t)&&(manager||STAGES.indexOf(t.stage)<=index||t.kind==='grid'||t.owner===user.id))){
         const base={analysisId:item.id,faultId:item.faultId,taskId:t.id,stage:t.stage,title:item.title,label:t.title,owner:t.owner,due:t.due,overdue:!!t.due&&dueInstant(t.due)<+now};
         if(t.kind==='production'&&!item.workflow.d8.production.productionAt){if(manager||t.owner===user.id)rows.push({...base,type:'waiting-production',label:'等待首次生产：'+t.title,overdue:false});continue;}
-        if(t.kind==='grid'&&manager&&GSubmitted(item,t))rows.push({...base,type:'review',label:'九宫格结论待审核：'+t.title});
+        if(t.kind==='grid'&&manager){const reviewNodeIds=submittedGridNodes(item,t);if(reviewNodeIds.length)rows.push({...base,type:'review',label:'九宫格结论待审核：'+t.title,reviewNodeIds});}
         if(manager&&(!t.owner||!t.due||!W.isQuantity(t)&&![1,2,3].includes(Number(t.base))))rows.push({...base,type:'unassigned'});
         else if(t.status==='submitted'&&(manager||t.owner===user.id)&&!(manager&&t.kind==='grid'))rows.push({...base,type:manager?'review':'submitted',overdue:manager&&base.overdue});
         else if(['draft','returned'].includes(t.status)&&t.owner===user.id)rows.push({...base,type:t.status==='returned'?'returned':'todo'});

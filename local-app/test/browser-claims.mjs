@@ -166,6 +166,8 @@ try {
   await route('todo');
   await until(()=>run(()=>!!document.querySelector('#todoBody')&&!document.querySelector('#todoBody').textContent.includes('正在读取')),'workbench loaded');
   check('待办页签含待我处理/已处理已转出/案件进度',await run(()=>['待我处理','我已处理','案件进度'].every(label=>document.querySelector('#page').textContent.includes(label))));
+  check('待办事项标签为中文，不出现队列类型码',await run(()=>!/unassigned|review|missing|waiting-production|stage-confirm/.test(document.querySelector('#todoBody').textContent)));
+  await capture('02b-待办中文标签与来源');
   check('案件进度统计真实索赔阶段',await run(()=>document.querySelector('#page').textContent.includes('索赔已完成')));
   await click('[data-todo-tab="claims"]');
   await until(()=>run(()=>document.querySelector('#page').textContent.includes('CL-UI-001')),'claim in progress tab');

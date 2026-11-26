@@ -4,3 +4,16 @@
 .local-side,.local-nav{min-width:0;max-width:100%}.app-shell{grid-template-columns:205px minmax(0,1fr)}.content{min-width:0}.table-wrap{max-width:100%;overflow-x:auto}@media(max-width:900px){.app-shell{grid-template-columns:minmax(0,1fr)}.local-side{width:100%;max-width:100vw}.local-profile{flex-wrap:wrap}.local-header{flex-wrap:wrap}}
 
 .tutorial-card{background:#112d3e;border:1px solid #36bacb;border-radius:12px;padding:16px;box-shadow:0 8px 30px #0008;color:#d5e6f4}.tutorial-card h3{margin:10px 0}.tutorial-card p{font-size:14px;line-height:1.75;margin:8px 0}.tutorial-card small{color:#a0b9cc}.tutorial-card .action-row{flex-wrap:wrap;gap:6px;margin-top:12px}.tutorial-restart{background:none;border:0;color:#76dfeb;cursor:pointer;margin-top:12px}.tutorial-target{outline:3px solid #f4cd57!important;outline-offset:3px}
+
+/* REQ-002-LIVE-003：打开中的即时反馈、失败可恢复、只读原因与待审核清单 */
+/* R2：放左下角。原来固定在右下角，与分析页 footer 的“移除当前分析（保留历史）”按钮共用同一坐标；
+   读取刚结束、提示收起的瞬间点“取消”，落点会穿透到那个破坏性按钮上。左下只有身份说明文字，不会被误触。 */
+#openHint{position:fixed;left:22px;right:auto;bottom:24px;z-index:200;display:flex;gap:10px;align-items:center;padding:10px 14px;border:1px solid #3f7f92;border-radius:9px;background:#123243;color:#d9f6ff;font-size:13px;box-shadow:0 8px 28px #0008}
+#openHint[hidden]{display:none}
+#openFailure{position:fixed;inset:auto;left:50%;top:50%;transform:translate(-50%,-50%);width:min(560px,92vw);height:auto;max-height:80vh;z-index:210;border:1px solid #3b5a72;border-radius:12px;overflow:hidden;box-shadow:0 18px 60px #000a}
+#openFailure .modal-body{flex:0 1 auto;padding:20px 22px}
+#openFailure .modal-head{padding:14px 20px}
+#openFailure .modal-foot{padding:12px 20px}
+.v4-readonly-reason{margin:10px 0 14px;padding:10px 13px;border-left:3px solid #c99a4a;background:#1e2733;color:#e3cfa9;border-radius:6px;font-size:13px;line-height:1.7}
+.v4-review-list{display:grid;gap:8px;margin-top:12px}
+.finish-errors{margin:6px 0 0;color:#f0a9a0;font-size:12px;max-width:520px}

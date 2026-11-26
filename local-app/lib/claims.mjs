@@ -11,6 +11,10 @@ import {scopedData} from './access.mjs';
 
 export const CLAIM_STAGES=['待处理','处理中','待结算','已完成'];
 export const CLAIM_END='已完成';
+// 8D任务队列的类型码只用于逻辑判断；界面一律用中文，避免把 unassigned/review/missing 直接显示给用户。
+const QUEUE_KIND_LABEL={unassigned:'待分配',review:'待验收',returned:'退回补充',todo:'待完成',submitted:'已提交待验收','stage-confirm':'待阶段确认',close:'可关单',missing:'待补充','waiting-production':'等待生产'};
+// 待办按钮文案按真实类型给出，不再一律写"办理"。未知类型只允许查看，不伪装成可办理。
+const QUEUE_ACTION_LABEL={review:'审核',unassigned:'分配',returned:'补充',todo:'填写',submitted:'查看','stage-confirm':'确认',close:'关单',missing:'补充','waiting-production':'查看'};
 // 参与分摊的金额字段（提出/承认/实际赔付按同一比例）
 export const ALLOCATION_FIELDS=[['amount','索赔金额'],['agreed','承认金额'],['actual','实际赔付']];
 const MONEY_FIELDS=[['amount','索赔金额',false],['waiver','减免金额',true],['actual','实际赔付',true],['agreed','承认金额',true],['rejected','拒绝索赔金额',true],['estimated','预计赔付金额',true],['supplierAmount','供应商索赔金额',true],['supplierAgreed','供应商承认金额',true]];
@@ -397,8 +401,13 @@ export function createClaimService({store}){
     for(const row of queueRows){
       push(todo,seen,{
         source:row.analysisId?'analysis':'preliminary',
-        refId:row.taskId||row.analysisId,
+        // 初步分析没有 analysisId，用报故单号做去重键，否则多条初步任务会被当成同一条。
+        refId:row.taskId||row.faultId||row.analysisId||'',
         kind:row.type,
+        kindLabel:QUEUE_KIND_LABEL[row.type]||str(row.type),
+        action:QUEUE_ACTION_LABEL[row.type]||'查看事项',
+        // 审核待办携带"已提交节点集合"，前端据此直达真正可审核的内容；没有该字段的行保持原样。
+        ...(Array.isArray(row.reviewNodeIds)&&row.reviewNodeIds.length?{reviewNodeIds:row.reviewNodeIds.slice(0,100)}:{}),
         title:row.label||row.title||'8D任务',
         refTitle:row.title||'',
         stage:row.stage||'',
@@ -408,8 +417,7 @@ export function createClaimService({store}){
         analysisId:row.analysisId||'',
         faultId:row.faultId||'',
         taskId:row.taskId||'',
-        claimId:'',
-        action:'办理'
+        claimId:''
       });
     }
     for(const claim of claims){

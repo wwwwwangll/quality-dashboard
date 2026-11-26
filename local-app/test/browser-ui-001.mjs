@@ -120,6 +120,9 @@ try {
   await capture('03-真实报故详情');
   await run(()=>document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})));
   await route('work');
+  check('8D页为分析台账，不再重复待办队列与KPI',await run(()=>document.querySelector('#page h1').textContent.includes('8D 分析台账')&&!document.querySelector('#page [data-work-filter]')&&!document.querySelector('#page .kpis')));
+  check('8D台账提供进入待办页的入口',await run(()=>!!document.querySelector('#page [data-route=todo]')));
+  await capture('03b-8D分析台账');
   await click('.review-subnav [data-route=closure]');
   await until(()=>run(()=>!!document.querySelector('#metricResult table')),'department metrics');
   check('8D模块容纳部门关闭率',await run(()=>document.querySelector('.review-nav [aria-current]').textContent.includes('8D')));

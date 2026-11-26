@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import {startServer} from '../server.mjs';
-import {allocateCents,normalizeShares,stageOf} from '../lib/claims.mjs';
+import {allocateCents,normalizeShares,stageOf,createClaimService} from '../lib/claims.mjs';
 
 let runtime,root,admin,qe,qe2,worker,outsider;
 function client(){let cookie='',csrf='';return {async request(route,body,method=body?'POST':'GET',headers={}){const response=await fetch(runtime.address+route,{method,headers:{...(body?{'content-type':'application/json'}:{}),...(cookie?{cookie}:{}),...(csrf?{'x-csrf-token':csrf}:{}),'x-quality-test':'true',...headers},...(body?{body:JSON.stringify(body)}:{})});if(response.headers.get('set-cookie'))cookie=response.headers.get('set-cookie').split(';')[0];const result=response.headers.get('content-type')?.includes('application/json')?await response.json():await response.text();if(result.csrf)csrf=result.csrf;return {status:response.status,data:result};}}}
@@ -496,4 +496,44 @@ test('R2-1 期限修改纳入统一写权限、终态与事务',async()=>{
   assert.equal(claimById('CL-R2-LEGACY').status,'处理中');
   const linkClaim=claimById('CL-R2-DEADLINE');
   assert.equal((await qe.request('/api/claims/CL-R2-DEADLINE',{version:linkClaim.version,faultId:''},'PATCH')).status,200);
+});
+
+test('待办条目不外露队列类型码，且多条初步分析不被合并',async()=>{
+  // 8D队列返回的是类型码（unassigned/review/missing），界面必须显示中文；
+  // 初步分析没有 analysisId，若用 analysisId 做去重键会把多条初步任务并成一条。
+  const people=[{id:'u-wb',username:'qe-wb',name:'质量甲',dept:'质量部',role:'quality-engineer',enabled:true,permissions:['analysis.view','claims.view']}];
+  const store={list:kind=>kind==='users'?people:[],get:()=>null,put:()=>{throw Error('待办只读，不应写入')}};
+  const service=createClaimService({store});
+  const queueRows=[
+    {type:'unassigned',analysisId:'',taskId:'',faultId:'F-WB-1',label:'待分配任务一',due:'2026-12-01'},
+    {type:'unassigned',analysisId:'',taskId:'',faultId:'F-WB-2',label:'待分配任务二',due:'2026-12-02'},
+    {type:'missing',analysisId:'A-WB-1',taskId:'T-WB-1',faultId:'F-WB-3',label:'半成品数量确认',stage:'D3',due:'2026-12-03'}
+  ];
+  const wb=service.api('workbench',{user:people[0],queueRows});
+  assert.equal(wb.todo.length,3);
+  assert.equal(wb.todo.filter(row=>row.source==='preliminary').length,2);
+  assert.equal(wb.todo.filter(row=>row.source==='analysis').length,1);
+  assert.deepEqual([...new Set(wb.todo.map(row=>row.kindLabel))].sort(),['待分配','待补充']);
+  assert.equal(wb.todo.some(row=>['unassigned','review','missing','stage-confirm'].includes(row.kindLabel)),false);
+  assert.deepEqual(wb.todo.map(row=>row.kind).sort(),['missing','unassigned','unassigned']);
+});
+
+test('待办透传审核节点集合与动作文案，未知类型只允许查看',async()=>{
+  const people=[{id:'u-wb2',username:'qe-wb2',name:'质量乙',dept:'质量部',role:'quality-engineer',enabled:true,permissions:['analysis.view','claims.view']}];
+  const store={list:kind=>kind==='users'?people:[],get:()=>null,put:()=>{throw Error('待办只读，不应写入')}};
+  const service=createClaimService({store});
+  const wb=service.api('workbench',{user:people[0],queueRows:[
+    {type:'review',analysisId:'A-1',taskId:'T-1',faultId:'F-1',label:'九宫格结论待审核：设计质量',stage:'D4',reviewNodeIds:['NODE-1','NODE-2']},
+    {type:'unassigned',analysisId:'A-1',taskId:'T-2',faultId:'F-1',label:'半成品数量确认',stage:'D3'},
+    {type:'brand-new-type',analysisId:'A-1',taskId:'T-3',faultId:'F-1',label:'未知类型事项',stage:'D5'}
+  ]});
+  const review=wb.todo.find(row=>row.kind==='review');
+  assert.deepEqual(review.reviewNodeIds,['NODE-1','NODE-2']);
+  assert.equal(review.action,'审核');
+  assert.equal(review.kindLabel,'待验收');
+  assert.equal(wb.todo.find(row=>row.kind==='unassigned').action,'分配');
+  const unknown=wb.todo.find(row=>row.kind==='brand-new-type');
+  assert.equal(unknown.action,'查看事项','未知类型不能伪装成可办理');
+  assert.equal(wb.todo.some(row=>row.action==='brand-new-type'||row.action==='undefined'),false);
+  assert.equal(wb.todo.filter(row=>row.reviewNodeIds).length,1,'只有审核行携带节点集合');
 });

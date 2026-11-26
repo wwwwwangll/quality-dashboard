@@ -63,3 +63,26 @@ test('变更管理员可更正本人已完成的D2数量，保留历史且重新
  await cmd('save-d2-fill',{data:{productionQty:''},submit:false},'clerk');x=get();t=x.workflow.tasks.find(t=>t.kind==='d2-fill');assert.equal(t.status,'draft');assert.equal(t.completedAt,'');assert.equal(x.freezeAssignment.status,'draft');assert.equal(t.submissions.length,2);await assert.rejects(cmd('save-d2-fill',{data:{productionQty:''},submit:true},'clerk'),/非负整数/);
  await cmd('save-d2-fill',{data:{productionQty:9},submit:true},'clerk');x=get();assert.equal(x.workflow.tasks.find(t=>t.kind==='d2-fill').submissions.length,3);x.status='closed';store.put('analyses',x.id,x);await assert.rejects(cmd('save-d2-fill',{data:{productionQty:10},submit:true},'clerk'),/关闭/);
 }));
+test('审核待办携带已提交节点集合，草稿节点不进入集合，维度只出一条',()=>fixture(async({cmd,get,wf,store})=>{
+ await assign(cmd);
+ const draft=get().nineGrid.dimensions[0].nodes[0];
+ await cmd('grid-add',{dimension:'design'},'worker');
+ const submitted=get().nineGrid.dimensions[0].nodes[1];
+ await cmd('grid-save',{dimension:'design',nodeId:submitted.id,label:'test',status:'clear'},'worker');
+ await cmd('grid-submit',{dimension:'design',nodeId:submitted.id},'worker');
+ const queues=await wf.api('queues',{user:store.get('users','qe')});
+ const rows=queues.rows.filter(r=>r.type==='review'&&r.stage==='D4');
+ assert.equal(rows.length,1,'同一维度只出一条审核待办');
+ assert.deepEqual(rows[0].reviewNodeIds,[submitted.id]);
+ assert.equal(rows[0].reviewNodeIds.includes(draft.id),false,'未提交的L1不能进入可审核集合');
+ assert.ok(rows[0].reviewNodeIds.length===1);
+ // 再提交一条，集合应变成两条而待办行数不变
+ await cmd('grid-add',{dimension:'design'},'worker');
+ const second=get().nineGrid.dimensions[0].nodes.at(-1);
+ await cmd('grid-save',{dimension:'design',nodeId:second.id,label:'第二条结论',status:'clear'},'worker');
+ await cmd('grid-submit',{dimension:'design',nodeId:second.id},'worker');
+ const again=await wf.api('queues',{user:store.get('users','qe')});
+ const rows2=again.rows.filter(r=>r.type==='review'&&r.stage==='D4');
+ assert.equal(rows2.length,1);
+ assert.equal(rows2[0].reviewNodeIds.length,2);
+}));
