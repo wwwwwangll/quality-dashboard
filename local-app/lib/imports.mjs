@@ -7,8 +7,8 @@ import {requirePermission} from './auth.mjs';
 import {canReadFile} from './access.mjs';
 
 const definitions={
- fault:{kind:'faults',fields:{id:['报故单号','报故编号','单据编号','故障单号'],date:['报故日期','填报日期','日期'],product:['产品名称','产品'],model:['产品型号','型号'],material:['料号','物料编码','物料号'],customer:['客户名称','客户'],project:['项目名称','项目'],reporter:['报故人员','报故人','填报人'],description:['故障信息','故障描述','问题描述','故障现象'],condition:['发生地点与工况','工况','发生地点'],quantity:['报故数量','数量','故障数量']},required:['id','date','product','description']},
- claim:{kind:'claims',fields:{id:['索赔编号','索赔单号','客诉编号','单据编号'],date:['索赔日期','填表日期','日期'],product:['产品名称','产品'],model:['产品型号','型号'],material:['料号','物料编码','物料号'],customer:['客户名称','客户'],issue:['索赔原因','故障信息','问题描述','故障描述'],amount:['索赔金额','投诉金额','金额'],waiver:['减免金额','协商减免'],actual:['实际赔付','实际赔付金额','赔付金额'],faultId:['报故单号','报故编号','关联报故单号'],dept:['责任部门','主责部门'],deadline:['截止日期','完成期限'],status:['处理状态','状态'],currency:['币种','货币']},required:['id','customer','amount']}
+ fault:{kind:'faults',fields:{id:['投诉单号','投诉编号','报故单号','报故编号','单据编号','故障单号'],date:['投诉日期','报故日期','填报日期','日期'],product:['产品名称','产品'],model:['产品型号','型号'],material:['料号','物料编码','物料号'],customer:['客户名称','客户'],project:['项目名称','项目'],reporter:['投诉人','报故人员','报故人','填报人'],description:['故障信息','故障描述','问题描述','故障现象'],condition:['发生地点与工况','工况','发生地点'],quantity:['投诉数量','报故数量','数量','故障数量']},required:['id','date','product','description']},
+ claim:{kind:'claims',fields:{id:['索赔编号','索赔单号','客诉编号','单据编号'],date:['索赔日期','填表日期','日期'],product:['产品名称','产品'],model:['产品型号','型号'],material:['料号','物料编码','物料号'],customer:['客户名称','客户'],issue:['索赔原因','故障信息','问题描述','故障描述'],amount:['索赔金额','投诉金额','金额'],waiver:['减免金额','协商减免'],actual:['实际赔付','实际赔付金额','赔付金额'],faultId:['投诉单号','报故单号','投诉编号','报故编号','关联投诉单号','关联报故单号'],dept:['责任部门','主责部门'],deadline:['截止日期','完成期限'],status:['处理状态','状态'],currency:['币种','货币']},required:['id','customer','amount']}
 };
 const trim=x=>String(x??'').trim();
 Object.assign(definitions.fault.fields,{sn:['SN','产品SN','报故-SN'],category:['产品类别','产品类型'],sourcing:['自制外购','自制/外购'],dept:['责任部门','主责部门'],secondary:['次要责任部门'],status:['是否闭环','处理状态'],diagnosis:['问题判定','分析判定'],major:['重大质量问题'],batch:['批量问题'],projectType:['量产新品','项目阶段'],reasonType:['问题分类']});
@@ -32,9 +32,9 @@ Object.assign(definitions.fault.fields,{
 });
 definitions.fault.fields.id.push('故障申报编号');
 definitions.fault.fields.reporter.push('申报人');
-definitions.fault.fields.material.push('报故物料号');
-definitions.fault.fields.product.push('报故物料名称');
-definitions.fault.fields.sn.push('报故SN');
+definitions.fault.fields.material.push('投诉物料号','报故物料号');
+definitions.fault.fields.product.push('投诉物料名称','报故物料名称');
+definitions.fault.fields.sn.push('投诉SN','报故SN');
 definitions.shipment={kind:'shipments',fields:{id:['发货统计编号'],date:['统计月份','月份'],category:['产品类别'],quantity:['发货数量'],dept:['部门']},required:['id','date','category','quantity']};
 definitions.product={kind:'products',fields:{id:['产品编号','映射编号'],material:['料号','物料号'],product:['产品名称'],category:['产品类别'],sourcing:['自制外购','自制／外购','自制/外购']},required:['id','material','product','category']};
 function csvParse(text){const rows=[];let row=[],cell='',quoted=false;for(let i=0;i<text.length;i++){const c=text[i];if(c==='"'){if(quoted&&text[i+1]==='"'){cell+='"';i++}else if(!quoted&&cell==='')quoted=true;else if(quoted)quoted=false;else cell+=c;}else if(!quoted&&(c===','||c==='\n'||c==='\r')){row.push(cell);cell='';if(c!==','){rows.push(row);row=[];if(c==='\r'&&text[i+1]==='\n')i++}}else cell+=c;if(cell.length>32000)throw appError('单元格内容过长');if(rows.length>20000)throw appError('每次最多导入20000行，请拆分文件');}if(quoted)throw appError('CSV引号不完整');if(cell!==''||row.length){row.push(cell);rows.push(row)}return rows;}
@@ -65,7 +65,7 @@ function normalize(kind,raw,store,user){
  const text=Object.fromEntries(Object.entries(raw).map(([k,v])=>[k,trim(v)]));for(const v of Object.values(text))if(v.length>8000)throw appError('字段内容不能超过8000字');if(!text.id||text.id.length>200)throw appError('请提供稳定的OA单号（最多200字）');
  if(kind==='product'){for(const k of ['material','product','category'])if(!text[k])throw appError('请填写料号、产品名称和类别');return {...text,source:'OA'};}
  if(kind==='shipment'){text.date=dateValue(String(raw.date).length===7?raw.date+'-01':raw.date,'统计月份');text.date=text.date.slice(0,7)+'-01';const quantity=Number(raw.quantity);if(!text.category||trim(raw.quantity)===''||!Number.isSafeInteger(quantity)||quantity<0)throw appError('请填写类别和非负整数发货数量');return {...text,quantity,source:'OA'};}
- text.date=dateValue(raw.date,kind==='claim'?'索赔日期':'日期',kind==='claim');if(kind==='fault'){if(!text.product||!text.description)throw appError('产品名称和故障信息不能为空');const quantity=trim(raw.quantity)===''?null:Number(raw.quantity);if(quantity!==null&&(!Number.isSafeInteger(quantity)||quantity<0))throw appError('报故数量须为非负整数，未知请留空');return {...text,quantity,source:'OA',sourceId:text.id};}
+ text.date=dateValue(raw.date,kind==='claim'?'索赔日期':'日期',kind==='claim');if(kind==='fault'){if(!text.product||!text.description)throw appError('产品名称和故障信息不能为空');const quantity=trim(raw.quantity)===''?null:Number(raw.quantity);if(quantity!==null&&(!Number.isSafeInteger(quantity)||quantity<0))throw appError('投诉数量须为非负整数，未知请留空');return {...text,quantity,source:'OA',sourceId:text.id};}
  text.processingDate=dateValue(raw.processingDate,'处理日期',true);
  if(!text.date&&!text.processingDate)throw appError('索赔日期或处理日期至少填写一项');
  const quantity=trim(raw.quantity)===''?null:Number(raw.quantity);
@@ -81,7 +81,7 @@ function normalize(kind,raw,store,user){
  if(text.location&&!['厂内','厂外'].includes(text.location))throw appError('厂内/厂外须填写厂内或厂外');
  if(!text.customer)throw appError('客户不能为空');if(text.currency&&!['CNY','RMB','人民币','¥','￥'].includes(text.currency.toUpperCase()))throw appError('当前金额统计仅支持人民币，请拆分其他币种');
  const amountCents=cents(raw.amount,'索赔金额'),waiverCents=cents(raw.waiver,'减免金额',true),actualCents=cents(raw.actual,'实际赔付',true);if(waiverCents!==null&&waiverCents>amountCents)throw appError('减免金额不能超过索赔金额');
- if(text.faultId&&!store.get('faults',text.faultId))throw appError('关联报故单不存在，请先导入报故表或留空后续关联');
+ if(text.faultId&&!store.get('faults',text.faultId))throw appError('关联投诉单不存在，请先导入投诉表或留空后续关联');
  const agreedCents=cents(raw.agreed,'同意索赔金额',true),rejectedCents=cents(raw.rejected,'拒绝索赔金额',true),estimatedCents=cents(raw.estimated,'预计赔付金额',true);if(agreedCents!==null&&agreedCents>amountCents||rejectedCents!==null&&rejectedCents>amountCents||agreedCents!==null&&rejectedCents!==null&&agreedCents+rejectedCents>amountCents)throw appError('同意及拒绝金额不能超过申请金额');
  return {...text,quantity,photo,supplierAmountCents,supplierAgreedCents,supplierAmount:supplierAmountCents===null?null:supplierAmountCents/100,supplierAgreed:supplierAgreedCents===null?null:supplierAgreedCents/100,agreedCents,rejectedCents,estimatedCents,currency:'CNY',deadline:dateValue(raw.deadline,'截止日期',true),status:text.status||'待处理',faultIds:text.faultId?[text.faultId]:[],amountCents,waiverCents,actualCents,amount:amountCents/100,waiver:waiverCents===null?null:waiverCents/100,actual:actualCents===null?null:actualCents/100,calculatedActualCents:waiverCents===null?null:amountCents-waiverCents,amountMismatch:waiverCents!==null&&actualCents!==null&&amountCents-waiverCents!==actualCents,source:'OA',sourceId:text.id};
 }
@@ -94,7 +94,7 @@ function guessMapping(kind,headers){return Object.fromEntries(Object.entries(def
 const fingerprint=data=>createHash('sha256').update(JSON.stringify(data)).digest('hex');
 const csvCell=x=>'"'+String(x??'').replaceAll('"','""')+'"';
 export function createImportService({store}){
- function template(kind){const def=definitions[kind];if(!def)throw appError('请选择报故或索赔导入');return '\uFEFF'+Object.values(def.fields).map(a=>csvCell(a[0])).join(',')+'\r\n';}
+ function template(kind){const def=definitions[kind];if(!def)throw appError('请选择投诉或索赔导入');return '\uFEFF'+Object.values(def.fields).map(a=>csvCell(a[0])).join(',')+'\r\n';}
  async function preview(body,user){requirePermission(user,'imports.manage');const kind=body.kind;if(!definitions[kind])throw appError('导入类型无效');const parsed=await readFile(body.name,body.base64,body.sheet);const table=parsed.table.filter(r=>r.some(v=>trim(v)!==''));if(table.length<2)throw appError('表格中没有数据行');const headers=table[0].map(trim);if(headers.some(h=>!h)||new Set(headers).size!==headers.length)throw appError('表头不能空白或重复，请先整理文件');
  const mapping={...guessMapping(kind,headers),...(body.mapping||{})};for(const [key,value]of Object.entries(mapping))if(!Object.hasOwn(definitions[kind].fields,key)||value&&!headers.includes(value))throw appError('字段匹配无效');
  const missing=definitions[kind].required.filter(k=>!mapping[k]),rows=[],errors=[],duplicates=[],changes=[],seen=new Set();

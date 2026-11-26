@@ -179,8 +179,8 @@ export function createWorkflowService({store,fileRoot,onClosed=async()=>{},clock
     invalidate(item,id);
   }
   function preliminary(action,{user,body,id},now) {
-    const fault=store.get('faults',id);ensure(fault,'报故不存在',404);
-    if(action==='assign'){checkPermission(user,'tasks.assign');const assignee=userBy(body.userId);ensure(enabled(assignee)&&hasPermission(assignee,'preliminary.write'),'请选择启用的失效分析人员');ensure(dateValid(body.due),'请选择有效完成期限');const previous=store.get('preliminaryAssignments',id);return store.put('preliminaryAssignments',id,{faultId:id,userId:assignee.id,due:body.due,assignedBy:user.id,assignedAt:now.toISOString(),status:'assigned',history:[...(previous?.history||[]),stamp(user,'分派初步分析给 '+assignee.name,now)]},{actor:user.id,event:'分派报故初步分析'});}
+    const fault=store.get('faults',id);ensure(fault,'投诉不存在',404);
+    if(action==='assign'){checkPermission(user,'tasks.assign');const assignee=userBy(body.userId);ensure(enabled(assignee)&&hasPermission(assignee,'preliminary.write'),'请选择启用的失效分析人员');ensure(dateValid(body.due),'请选择有效完成期限');const previous=store.get('preliminaryAssignments',id);return store.put('preliminaryAssignments',id,{faultId:id,userId:assignee.id,due:body.due,assignedBy:user.id,assignedAt:now.toISOString(),status:'assigned',history:[...(previous?.history||[]),stamp(user,'分派初步分析给 '+assignee.name,now)]},{actor:user.id,event:'分派投诉初步分析'});}
     checkPermission(user,'preliminary.write');const previous=body.id?store.get('preliminary',body.id):null;
     if(body.id){ensure(previous&&previous.faultId===id,'初步分析记录不存在',404);ensure(previous.authorId===user.id,'只能修改自己的分析记录',403);requireVersion(previous,body.version);}
     const status=body.remove?'archived':body.status||'draft';ensure(['draft','submitted','archived'].includes(status),'初步分析状态无效');
@@ -188,14 +188,14 @@ export function createWorkflowService({store,fileRoot,onClosed=async()=>{},clock
     if(status==='submitted')ensure(record.phenomenon&&record.process&&record.conclusion,'请填写现象、检查过程和初步结论');
     if(previous)record.history.push({version:previous.version,at:now.toISOString(),by:user.id,phenomenon:previous.phenomenon,process:previous.process,conclusion:previous.conclusion,files:previous.files,status:previous.status});
     if(status==='submitted')record.submittedAt=now.toISOString();
-    const saved=store.put('preliminary',record.id,record,{expectedVersion:previous?.version,actor:user.id,event:'保存报故初步分析'});
+    const saved=store.put('preliminary',record.id,record,{expectedVersion:previous?.version,actor:user.id,event:'保存投诉初步分析'});
     const assignment=store.get('preliminaryAssignments',id);if(assignment?.userId===user.id&&status==='submitted')store.put('preliminaryAssignments',id,{...assignment,status:'completed',completedAt:now.toISOString(),recordId:record.id,completedDept:user.dept||'未设置部门'},{expectedVersion:assignment.version,actor:user.id,event:'完成初步分析任务'});
     return saved;
   }
   function metricTasks(W) {
     const tasks=[];
     for(const item of store.list('analyses').filter(x=>!x.archived)){W.ensure(item);for(const t of item.workflow.tasks.filter(t=>W.taskEnabled(item,t))){const user=userBy(t.owner),complete=t.status==='accepted'&&W.currentSubmission(t);tasks.push({analysisId:item.id,faultId:item.faultId,id:t.id,taskId:t.id,title:t.title,stage:t.stage,owner:t.owner,ownerName:user?.name||'历史人员',department:complete?t.completedDept||t.reportingDept||user?.dept||'未设置部门':t.reportingDept||user?.dept||'未设置部门',due:t.due,status:t.status,completedAt:complete?t.submittedAt||t.completedAt:'',completed:complete,awaitingReview:t.status==='submitted'});}}
-    for(const p of store.list('preliminaryAssignments')){const user=userBy(p.userId);tasks.push({faultId:p.faultId,id:'preliminary:'+p.id,taskId:'preliminary:'+p.id,title:'报故初步失效分析',stage:'初步分析',owner:p.userId,ownerName:user?.name||'历史人员',department:p.completedDept||user?.dept||'未设置部门',due:p.due,status:p.status,completedAt:p.completedAt||'',completed:p.status==='completed',awaitingReview:false});}
+    for(const p of store.list('preliminaryAssignments')){const user=userBy(p.userId);tasks.push({faultId:p.faultId,id:'preliminary:'+p.id,taskId:'preliminary:'+p.id,title:'投诉初步失效分析',stage:'初步分析',owner:p.userId,ownerName:user?.name||'历史人员',department:p.completedDept||user?.dept||'未设置部门',due:p.due,status:p.status,completedAt:p.completedAt||'',completed:p.status==='completed',awaitingReview:false});}
     return tasks;
   }
   function metrics(body,W,now) {
@@ -229,7 +229,7 @@ export function createWorkflowService({store,fileRoot,onClosed=async()=>{},clock
       }
       if(manager){for(const issue of W.checklist(item,now.toISOString()).filter(i=>STAGES.indexOf(i.stage)<=index&&!i.taskId&&['missing','evidence','confirmation'].includes(i.type)))rows.push({analysisId:item.id,faultId:item.faultId,stage:issue.stage,taskId:issue.taskId||'',type:issue.type==='confirmation'?'stage-confirm':'missing',label:issue.label,owner:user.id,due:issue.due||'',overdue:issue.overdue});if(STAGES.every(id=>W.stageComplete(item,id))&&!C.closureError(item))rows.push({analysisId:item.id,stage:'D8',type:'close',label:'全部阶段已确认，可以关单',owner:user.id});}
     }
-    for(const p of store.list('preliminaryAssignments').filter(p=>p.status!=='completed'&&p.userId===user.id))rows.push({faultId:p.faultId,taskId:'preliminary:'+p.id,stage:'初步分析',type:'todo',label:'报故初步失效分析',owner:user.id,due:p.due,overdue:dueInstant(p.due)<+now});
+    for(const p of store.list('preliminaryAssignments').filter(p=>p.status!=='completed'&&p.userId===user.id))rows.push({faultId:p.faultId,taskId:'preliminary:'+p.id,stage:'初步分析',type:'todo',label:'投诉初步失效分析',owner:user.id,due:p.due,overdue:dueInstant(p.due)<+now});
     const unique=new Set();for(let i=rows.length-1;i>=0;i--){const r=rows[i],key=[r.analysisId||r.faultId,r.stage,r.taskId,r.type,r.label].join('|');if(unique.has(key))rows.splice(i,1);else unique.add(key);}
     const counts={};for(const r of rows)counts[r.type]=(counts[r.type]||0)+1;return {rows,counts};
   }
@@ -239,12 +239,12 @@ export function createWorkflowService({store,fileRoot,onClosed=async()=>{},clock
     if(action==='metrics'){const m=metrics(body,W,now);if(globalView(user))return m;m.departments=m.departments.filter(d=>d.department===user.dept);m.tasks=m.tasks.filter(t=>t.department===user.dept);m.backlog=m.backlog.filter(t=>t.department===user.dept);return m;}
     if(action==='queues')return queues(user,C,W,now);
     if(action==='create'){
-      checkPermission(user,'analysis.start');const fault=store.get('faults',body.faultId);ensure(fault,'报故不存在',404);ensure(!store.list('analyses').some(x=>!x.archived&&x.faultId===fault.id),'该报故已纳入8D，请查看已有事项',409);
+      checkPermission(user,'analysis.start');const fault=store.get('faults',body.faultId);ensure(fault,'投诉不存在',404);ensure(!store.list('analyses').some(x=>!x.archived&&x.faultId===fault.id),'该投诉已纳入8D，请查看已有事项',409);
       let item;if(body.originalId){const source=store.get('analyses',body.originalId);ensure(source?.status==='closed','复发关联原8D须已关闭');item=W.createRecurrence(source,fault,C,dateStamp(now));}else item=C.createItem(fault,dateStamp(now));
       item.id='QA-'+randomUUID();item.owner=user.id;item.team=[{personId:user.id,role:'质量分析组织、分派与验收'}];item.tasks=[];item.revised.partNo=str(fault.partNo||fault.material);item.snapshot.partNo=str(fault.partNo||fault.material);item.approval={required:false,reviewer:'',status:'none',comment:''};item.history=[];item.preliminarySnapshot=clone(preliminaryFor(fault.id));item.createdAt=now.toISOString();item.stage='D1';W.ensure(item);for(const t of item.workflow.tasks)t.reviewer=user.id;
       if(body.mode==='nine-grid')G.init(item,W);
       if(item.workflow.d2.freeze){for(const t of item.workflow.tasks.filter(t=>t.kind==='freeze')){t.data.material=item.revised.partNo;t.data.sn=fault.sn||'';}}
-      return persist(item,user,'从报故单开启8D，保留初步分析快照',undefined,C,W,now);
+      return persist(item,user,'从投诉单开启8D，保留初步分析快照',undefined,C,W,now);
     }
     if(action==='get'){
       const item=requireRecord(store,user,'analyses',id);return decorate(item,C,W);
@@ -311,11 +311,11 @@ export function createWorkflowService({store,fileRoot,onClosed=async()=>{},clock
       case 'archive-analysis':management();ensure(str(body.reason),'请填写移除原因');item.archived=true;item.archivedAt=now.toISOString();item.archivedBy=user.id;item.archiveReason=str(body.reason);break;
       case 'patch-stage':patchStage(item,body,user,C,W,now,originalOwner);break;
       case 'sync-source':{
-        management();const latest=store.get('faults',item.faultId);ensure(latest,'原报故单不存在',404);const prior=clone(item.snapshot),priorRevised=clone(item.revised),next={...clone(latest),partNo:str(latest.partNo||latest.material)};
+        management();const latest=store.get('faults',item.faultId);ensure(latest,'原投诉单不存在',404);const prior=clone(item.snapshot),priorRevised=clone(item.revised),next={...clone(latest),partNo:str(latest.partNo||latest.material)};
         for(const key of Object.keys(item.revised))if(next[key]===undefined)next[key]='';
         C.syncSource(item,next);if(next.quantity===null&&String(priorRevised.quantity)===String(prior.quantity))item.revised.quantity='';
         for(const key of ['description','condition'])if(!str(item.stages.D2.fields[key])||String(item.stages.D2.fields[key])===String(prior[key]??''))item.stages.D2.fields[key]=str(item.revised[key]);
-        const oldImpact='报故涉及 '+prior.quantity+' 件，影响范围待确认';if(item.stages.D2.fields.impact===oldImpact)item.stages.D2.fields.impact=next.quantity===null?'报故涉及数量待确认':'报故涉及 '+next.quantity+' 件，影响范围待确认';
+        const oldImpact='投诉涉及 '+prior.quantity+' 件，影响范围待确认';if(item.stages.D2.fields.impact===oldImpact)item.stages.D2.fields.impact=next.quantity===null?'投诉涉及数量待确认':'投诉涉及 '+next.quantity+' 件，影响范围待确认';
         item.sourceSyncHistory ||= [];item.sourceSyncHistory.push({at:now.toISOString(),by:user.id,previousSnapshot:prior,sourceVersion:latest.version,previousRevised:priorRevised});item.sourceUpdateAvailable=false;if(!item.stages.D1.done)item.stage='D1';break;
       }
       case 'save-task':patchTask(item,t,body.patch||{},user,manager,C,W,now);break;

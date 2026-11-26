@@ -13,7 +13,7 @@
       return {...Board.state(today),mode,modules:Board.modules.map(([key])=>key).filter(key=>mode==='claims'?key==='finance':key!=='finance')};
     },
     boardTabs(mode){
-      return [['faults','报故看板'],['claims','索赔看板']].map(([key,label])=>
+      return [['faults','投诉看板'],['claims','索赔看板']].map(([key,label])=>
         '<button type="button" data-v4="board-mode" data-mode="'+key+'" aria-pressed="'+(mode===key)+'">'+label+'</button>').join('');
     },
     currentAmounts,

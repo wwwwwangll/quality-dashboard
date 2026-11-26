@@ -60,7 +60,7 @@ export function createSystemService({store,fileRoot=store.fileRoot}){
   }
   for(const assignment of store.list('preliminaryAssignments').filter(p=>p.status==='assigned')){
    const fault=store.get('faults',assignment.faultId);if(!fault)continue;
-   add({id:'preliminary:'+assignment.id,faultId:fault.id,title:fault.product||fault.model||'报故初步分析'},{id:'preliminary:'+assignment.id,owner:assignment.userId,due:assignment.due,title:'报故初步失效分析'},'#fault/'+encodeURIComponent(fault.id));
+   add({id:'preliminary:'+assignment.id,faultId:fault.id,title:fault.product||fault.model||'投诉初步分析'},{id:'preliminary:'+assignment.id,owner:assignment.userId,due:assignment.due,title:'投诉初步失效分析'},'#fault/'+encodeURIComponent(fault.id));
   }
   return out;
  }

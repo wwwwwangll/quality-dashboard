@@ -209,7 +209,7 @@ export function createClaimService({store}){
     if(currency&&!['CNY','RMB','人民币','¥','￥'].includes(currency))fail('当前金额统计仅支持人民币，请拆分其他币种');
     data.currency='CNY';
     const faultId=str(body.faultId);
-    if(faultId&&!store.get('faults',faultId))fail('关联报故单不存在，请先导入报故表或留空后续关联');
+    if(faultId&&!store.get('faults',faultId))fail('关联投诉单不存在，请先导入投诉表或留空后续关联');
     data.faultId=faultId;data.faultIds=faultId?[faultId]:[];
     const deadline=str(body.deadline);
     if(deadline&&!dateValid(deadline))fail('办理期限无效');
@@ -299,11 +299,11 @@ export function createClaimService({store}){
     const next={...old};
     const changed=deadline!==str(old.deadline);
     if(changed)next.deadline=deadline;
-    // 与旧路径保持一致的组合请求：同一事务内可同时提交报故关联（独立权限）。
+    // 与旧路径保持一致的组合请求：同一事务内可同时提交投诉关联（独立权限）。
     if(Object.hasOwn(body,'faultId')){
       if(!hasPermission(user,'imports.manage'))fail('当前账号没有此操作权限',403);
       const faultId=str(body.faultId);
-      if(faultId&&!store.get('faults',faultId))fail('请选择存在的报故单号');
+      if(faultId&&!store.get('faults',faultId))fail('请选择存在的投诉单号');
       Object.assign(next,{faultId,faultIds:faultId?[faultId]:[],linkUpdatedAt:stamp()});
     }
     if(!changed&&!Object.hasOwn(body,'faultId'))return old;
@@ -401,7 +401,7 @@ export function createClaimService({store}){
     for(const row of queueRows){
       push(todo,seen,{
         source:row.analysisId?'analysis':'preliminary',
-        // 初步分析没有 analysisId，用报故单号做去重键，否则多条初步任务会被当成同一条。
+        // 初步分析没有 analysisId，用投诉单号做去重键，否则多条初步任务会被当成同一条。
         refId:row.taskId||row.faultId||row.analysisId||'',
         kind:row.type,
         kindLabel:QUEUE_KIND_LABEL[row.type]||str(row.type),

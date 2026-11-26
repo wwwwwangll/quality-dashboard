@@ -30,9 +30,9 @@ export function createArchiveService({store,fileRoot=store.fileRoot,renderPdf}){
   function text(t,size=10,color=rgb(.12,.18,.24)){for(const line of wrap(t,size)){ensure(size*1.65);page.drawText(line,{x:margin,y,size,font,color});y-=size*1.65;}y-=4;}
   function heading(t,level=1){ensure(level===1?85:64);y-=level===1?12:6;text(t,level===1?16:12,rgb(.04,.36,.43));}
   function field(k,v){if(v!==undefined&&v!==null&&value(v,k).trim())text((Object.hasOwn(labels,k)?labels[k]:k)+'：'+value(v,k));}
-  addPage();heading(snapshot.title||'8D分析报告');text('报告编号：'+snapshot.id+'    报故单：'+snapshot.faultId);text('关单时间：'+value(snapshot.closedAt||'历史记录未提供')+'    归档生成：'+new Date().toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'}));
+  addPage();heading(snapshot.title||'8D分析报告');text('报告编号：'+snapshot.id+'    投诉单：'+snapshot.faultId);text('关单时间：'+value(snapshot.closedAt||'历史记录未提供')+'    归档生成：'+new Date().toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'}));
   heading('基础信息');for(const[k,v]of Object.entries(snapshot.revised||{}))field(k,v);
-  heading('报故初步失效分析');const preliminary=snapshot.preliminarySnapshot||[];if(!preliminary.length)text('未记录初步分析。');for(const p of preliminary){text('分析人员：'+userName(p.authorId||p.owner)+'    提交时间：'+value(p.submittedAt||p.updatedAt||''));for(const k of ['phenomenon','process','conclusion'])field(k,p[k]);}
+  heading('投诉初步失效分析');const preliminary=snapshot.preliminarySnapshot||[];if(!preliminary.length)text('未记录初步分析。');for(const p of preliminary){text('分析人员：'+userName(p.authorId||p.owner)+'    提交时间：'+value(p.submittedAt||p.updatedAt||''));for(const k of ['phenomenon','process','conclusion'])field(k,p[k]);}
   const allFiles=[];const takeFiles=a=>{for(const f of a||[])if(f?.id&&!allFiles.some(x=>x.id===f.id))allFiles.push(f);};preliminary.forEach(p=>takeFiles(p.files));
   const stageNames={D1:'团队组建',D2:'问题描述',D3:'临时遏制',D4:'根因分析',D5:'永久纠正',D6:'实施验证',D7:'防止再发',D8:'总结关闭'};
   for(const [id,name]of Object.entries(stageNames)){

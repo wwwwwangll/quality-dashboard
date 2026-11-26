@@ -14,21 +14,21 @@
     ['sharesLabel','责任分摊','choice'],['actual','实际赔付','money'],['confirmedLabel','分摊确认','choice'],['overdueLabel','是否逾期','choice']
   ];
   const reportFields=[
-    ['id','故障申报编号'],['reporter','申报人','choice'],['material','报故物料号'],['product','报故物料名称'],
+    ['id','投诉编号'],['reporter','投诉人','choice'],['material','投诉物料号'],['product','投诉物料名称'],
     ['assemblyMaterial','故障件总成料号（4/5X料号）'],['description','故障现象描述'],['customerCode','客户编码'],
-    ['customerMaterialName','客户物料名称'],['category','产品类别','choice'],['sn','报故SN'],['customer','客户名称','choice'],
+    ['customerMaterialName','客户物料名称'],['category','产品类别','choice'],['sn','投诉SN'],['customer','客户名称','choice'],
     ['organization','内部组织','choice'],['trackingNo','物流单号'],['firstHandler','第一经手人','choice'],
-    ['date','报故日期','date'],['resolution','解决措施','choice'],['contact','联系人'],['contactPhone','联系电话'],
+    ['date','投诉日期','date'],['resolution','解决措施','choice'],['contact','联系人'],['contactPhone','联系电话'],
     ['recovered','是否已全部追回','choice'],['claimId','索赔单号'],['repair','维修方式','choice'],
     ['inspection','是否需要检测单','choice'],['documentStatus','文档状态','choice'],['analysisStatus','分析进度','choice']
   ];
   const workFields=[
-    ['analysisId','8D编号'],['faultId','故障申报编号'],['reporter','申报人','choice'],['material','报故物料号'],
-    ['product','报故物料名称'],['title','分析标题'],['customer','客户名称','choice'],['category','产品类别','choice'],
-    ['stage','当前阶段','choice'],['analysisStatus','8D状态','choice'],['date','报故日期','date']
+    ['analysisId','8D编号'],['faultId','投诉编号'],['reporter','投诉人','choice'],['material','投诉物料号'],
+    ['product','投诉物料名称'],['title','分析标题'],['customer','客户名称','choice'],['category','产品类别','choice'],
+    ['stage','当前阶段','choice'],['analysisStatus','8D状态','choice'],['date','投诉日期','date']
   ];
   const importTypes={
-    fault:{label:'导入报故表',route:'faults'},claim:{label:'导入索赔表',route:'claims'},
+    fault:{label:'导入投诉表',route:'faults'},claim:{label:'导入索赔表',route:'claims'},
     shipment:{label:'导入月度发货表',route:'overview'},product:{label:'导入产品分类与料号映射',route:'overview'}
   };
   const isSet=value=>value!==''&&value!==undefined&&value!==null;

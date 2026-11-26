@@ -7,7 +7,7 @@ let passwordOperations=0;
 async function derive(password,salt){if(passwordOperations>=2)throw appError('密码验证繁忙，请稍后重试',429);passwordOperations++;try{return await scrypt(password,salt,64,{N:131072,r:8,p:1,maxmem:256*1024*1024});}finally{passwordOperations--;}}
 export const permissionOptions=[
  ['analysis.manage','管理8D、团队和阶段'],['analysis.start','开启8D'],['tasks.assign','分派任务'],['tasks.review','验收、判责和关单'],['tasks.transfer','转交自己的未完成任务'],['imports.manage','导入OA数据'],['preliminary.write','填写自己的初步失效分析'],['freeze.number.write','填写分派的冻结编号']
-].concat([['dashboard.view','查看公司看板'],['analysis.view','查看8D及任务'],['faults.view','查看报故及初步分析'],['claims.view','查看索赔'],['files.view','查看附件'],['pdf.view','查看已关闭PDF'],['tasks.submit','填写并提交本人任务'],['analysis.close','最终关单']]).map(([key,label])=>({key,label}));
+].concat([['dashboard.view','查看公司看板'],['analysis.view','查看8D及任务'],['faults.view','查看投诉及初步分析'],['claims.view','查看索赔'],['files.view','查看附件'],['pdf.view','查看已关闭PDF'],['tasks.submit','填写并提交本人任务'],['analysis.close','最终关单']]).map(([key,label])=>({key,label}));
 export const roles=[{id:'admin',name:'管理员'},{id:'quality-engineer',name:'质量工程师'},{id:'failure-analyst',name:'失效分析人员'},{id:'worker',name:'执行人员'},{id:'viewer',name:'看板与报告查看'},{id:'freeze-clerk',name:'变更管理员'}];
 const business=permissionOptions.map(p=>p.key);
 const defaults={'admin':['*'],'quality-engineer':business,'failure-analyst':['preliminary.write','tasks.transfer'],'worker':['tasks.transfer'],'viewer':[],'freeze-clerk':['freeze.number.write']};

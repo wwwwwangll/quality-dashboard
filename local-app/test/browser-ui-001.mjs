@@ -84,7 +84,7 @@ try {
   await click('[data-v4=board-apply-dates]');
   check('日期确定后真实数据改变',await totals()!==originalTotal);
   await click('[data-mode=claims]');
-  check('索赔看板独立且显示转嫁口径',await run(()=>document.querySelector('#page').textContent.includes('转嫁金额')&&!document.querySelector('#page').textContent.includes('月度报故趋势')));
+  check('索赔看板独立且显示转嫁口径',await run(()=>document.querySelector('#page').textContent.includes('转嫁金额')&&!document.querySelector('#page').textContent.includes('月度投诉趋势')));
   await capture('07-真实索赔看板');
   const claimAmount=()=>run(()=>document.querySelector('.review-claim-kpis .kpi:nth-child(2) b').textContent);
   const originalClaimAmount=await claimAmount();
@@ -115,7 +115,7 @@ try {
   check('报故列表筛选真实客户记录',await run(()=>document.querySelectorAll('#page tbody tr').length>0));
   await click('[data-clear-list-filter]');
   await click('#page [data-open-fault]');
-  await until(()=>run(()=>document.querySelector('#dialogRoot').textContent.includes('报故详情')),'fault details');
+  await until(()=>run(()=>document.querySelector('#dialogRoot').textContent.includes('投诉详情')),'fault details');
   check('原报故全部主要字段及初步分析保留',await run(()=>['SN','料号','初步失效分析','发生地点'].every(text=>document.querySelector('#dialogRoot').textContent.includes(text))));
   await capture('03-真实报故详情');
   await run(()=>document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})));
